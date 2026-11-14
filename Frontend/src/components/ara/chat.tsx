@@ -7,6 +7,7 @@ import { ApiError, request, backendLanguage, canSendChat, money } from "@/lib/ar
 import type { Key } from "@/lib/ara/i18n";
 export function Chat() {
   const a = useAra();
+  const liveTaxes = a.chatData["live_calculation"]?.["taxes"];
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -203,11 +204,14 @@ export function Chat() {
               <p key={k}>{k.replaceAll("_", " ")}</p>
             ))}
           </div>
-          {a.chatData["live_calculation"] && (
+          {liveTaxes?.net_tax_owed_or_refund !== undefined && (
             <div className="rail-pro">
               <h3>{a.t("chatLive")}</h3>
+              <p className="text-sm text-muted-foreground">
+                {a.t(liveTaxes.is_refund ? "refund" : "owe")}
+              </p>
               <strong className="text-2xl">
-                {money(a.chatData["live_calculation"].net_tax_owed_or_refund)}
+                {money(liveTaxes.net_tax_owed_or_refund)}
               </strong>
             </div>
           )}

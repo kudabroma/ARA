@@ -1,7 +1,14 @@
-import { Link } from "@tanstack/react-router";
+import { useState, type FormEvent } from "react";
+import { Link, useNavigate } from "@tanstack/react-router";
 import { Check, ArrowRight, ArrowLeft, Sparkles, CreditCard, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAra } from "./context";
+import {
+  isFutureExpiry,
+  isLuhnValid,
+  isValidCvc,
+  isValidEmail,
+} from "@/lib/ara/checkout-validation";
 export function Plans() {
   const a = useAra();
   return (
@@ -65,6 +72,42 @@ export function Plans() {
 }
 export function Checkout() {
   const a = useAra();
+  const navigate = useNavigate();
+  const [form, setForm] = useState({
+    email: "",
+    name: "",
+    cardNumber: "",
+    expiry: "",
+    cvc: "",
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const update = (key: keyof typeof form, value: string) =>
+    setForm((current) => ({ ...current, [key]: value }));
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError("");
+    if (
+      !isValidEmail(form.email) ||
+      !form.name.trim() ||
+      !isLuhnValid(form.cardNumber) ||
+      !isFutureExpiry(form.expiry) ||
+      !isValidCvc(form.cvc)
+    ) {
+      setError(a.t("checkoutInvalid"));
+      return;
+    }
+
+    setBusy(true);
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 1500));
+      setForm({ email: "", name: "", cardNumber: "", expiry: "", cvc: "" });
+      a.setPlan("pro");
+      await navigate({ to: "/success" });
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <>
       <Button asChild variant="ghost" size="sm">
@@ -84,11 +127,77 @@ export function Checkout() {
             $12 <span className="text-xs font-normal text-muted-foreground">{a.t("month")}</span>
           </span>
         </div>
-        <div className="notice mb-5">{a.t("paymentUnavailable")}</div>
-        <p className="mb-6 text-sm leading-7 text-muted-foreground">{a.t("checkoutHint")}</p>
-        <Button disabled className="w-full">
-          {a.t("paymentUnavailable")}
-        </Button>
+        <div className="notice mb-5">
+          Test mode: use 4242 4242 4242 4242, any future date, any CVC. No real charge, nothing is
+          stored.
+        </div>
+        <form className="space-y-4" onSubmit={submit}>
+          <label className="field">
+            {a.t("checkoutEmail")}
+            <input
+              type="email"
+              autoComplete="email"
+              required
+              value={form.email}
+              onChange={(event) => update("email", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            {a.t("checkoutName")}
+            <input
+              autoComplete="cc-name"
+              required
+              value={form.name}
+              onChange={(event) => update("name", event.target.value)}
+            />
+          </label>
+          <label className="field">
+            {a.t("checkoutCardNumber")}
+            <input
+              type="text"
+              inputMode="numeric"
+              autoComplete="cc-number"
+              required
+              value={form.cardNumber}
+              onChange={(event) => update("cardNumber", event.target.value)}
+            />
+          </label>
+          <div className="field-grid">
+            <label className="field">
+              {a.t("checkoutExpiry")}
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="cc-exp"
+                placeholder="MM/YY"
+                maxLength={7}
+                required
+                value={form.expiry}
+                onChange={(event) => update("expiry", event.target.value)}
+              />
+            </label>
+            <label className="field">
+              {a.t("checkoutCvc")}
+              <input
+                type="password"
+                inputMode="numeric"
+                autoComplete="cc-csc"
+                maxLength={4}
+                required
+                value={form.cvc}
+                onChange={(event) => update("cvc", event.target.value)}
+              />
+            </label>
+          </div>
+          {error && (
+            <div className="notice" role="alert">
+              {error}
+            </div>
+          )}
+          <Button type="submit" className="w-full" disabled={busy}>
+            {busy ? a.t("checkoutProcessing") : a.t("upgrade")}
+          </Button>
+        </form>
         <Button asChild variant="ghost" className="mt-3 w-full">
           <Link to="/">
             {a.t("back")}
@@ -106,11 +215,11 @@ export function PaymentSuccess() {
       <span className="empty-icon">
         <ShieldCheck size={30} />
       </span>
-      <h1 className="page-heading">{a.t("noPayment")}</h1>
+      <h1 className="page-heading">{a.t("welcomePro")}</h1>
       <p>{a.t("successHint")}</p>
       <Button asChild>
-        <Link to="/">
-          {a.t("back")}
+        <Link to="/" onClick={() => a.setSection(a.result ? "results" : "new")}>
+          {a.t("backToCalculation")}
           <ArrowRight />
         </Link>
       </Button>

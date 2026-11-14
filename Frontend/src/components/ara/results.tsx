@@ -90,14 +90,24 @@ export function Results() {
     taxes = r["taxes"] || {},
     residency = r["residency"] || {};
   const breakdown = [
-    "net_1099_income",
-    "standard_deduction",
-    "qbi_deduction",
+    "net_self_employment_income",
+    "standard_deduction_applied",
+    "qbi_deduction_applied",
     "taxable_income",
     "federal_income_tax",
     "self_employment_tax",
   ] as const;
-  const tx = r["transactions"]?.transactions || r["transactions"]?.categorized_transactions || [];
+  const tx = r["transactions"]?.transactions || [];
+  const txTotals = r["transactions"]
+    ? {
+        total_income_1099: r["transactions"].total_income_1099,
+        total_business_expenses_raw: r["transactions"].total_business_expenses_raw,
+        total_deductible_expenses: r["transactions"].total_deductible_expenses,
+        total_personal_expenses: r["transactions"].total_personal_expenses,
+        estimated_total_tax_savings: r["transactions"].estimated_total_tax_savings,
+        category_summary: r["transactions"].category_summary,
+      }
+    : null;
   const guidance = formGuidance(residency.residency_status, a.inputs.visa, Boolean(r["form_8843"]));
   return (
     <>
@@ -173,14 +183,14 @@ export function Results() {
         <Locked>
           <div className="stat-grid">
             {[
-              "total_tax",
-              "self_employment_tax",
-              "money_saved_by_deductions",
-              "erroneous_fica_refund_amount",
-            ].map((k) => (
-              <div className="stat" key={k}>
-                <p>{a.t(k as Key)}</p>
-                <strong>{money(taxes[k])}</strong>
+              ["total_tax_liability", "total_tax"],
+              ["self_employment_tax", "self_employment_tax"],
+              ["Deduction_tax_savings_usd", "Deduction_tax_savings_usd"],
+              ["erroneous_fica_refund_amount", "erroneous_fica_refund_amount"],
+            ].map(([field, label]) => (
+              <div className="stat" key={field}>
+                <p>{a.t(label as Key)}</p>
+                <strong>{money(taxes[field])}</strong>
               </div>
             ))}
           </div>
@@ -228,7 +238,7 @@ export function Results() {
                     <td>{t.description}</td>
                     <td>{money(t.amount)}</td>
                     <td>
-                      <span className="status-pill">{t.category}</span>
+                      <span className="status-pill">{t.classification}</span>
                     </td>
                     <td>{t.schedule_c_category || "—"}</td>
                   </tr>
@@ -236,14 +246,14 @@ export function Results() {
               </tbody>
             </table>
           </div>
-          <Readable value={r["transactions"]?.totals || a.t("noData")} />
+          <Readable value={txTotals || a.t("noData")} />
         </Locked>
       </section>
       <section className="result-block">
         <h2>{a.t("fica")}</h2>
         <Locked>
           <Readable value={taxes.erroneous_fica_explanation || a.t("noData")} />
-          <Readable value={taxes.erroneous_fica_next_steps} />
+          <p className="mt-4 text-sm leading-7 text-muted-foreground">{a.t("ficaNextSteps")}</p>
         </Locked>
       </section>
       <section className="result-block">

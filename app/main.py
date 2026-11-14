@@ -25,12 +25,12 @@ from app.services.residency import calculate_residency
 from app.services.taxes import calculate_taxes
 from app.services.transactions import analyze_transactions
 
-app = FastAPI(title="NomadTax API", version="1.0.0")
+app = FastAPI(title="ARATax API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -41,7 +41,7 @@ app.add_middleware(
 def health_check() -> Dict[str, Any]:
     return {
         "status": "ok",
-        "service": "NomadTax US Tax & Residency API",
+        "service": "ARATax US Tax & Residency API",
         "subscription": {
             "active": True,
             "tier": "Filing Pack Pro",
@@ -128,11 +128,21 @@ def explain_endpoint(req: ExplainRequest) -> Dict[str, Any]:
 
 @app.post("/api/chat")
 def chat_endpoint(req: ChatAgentRequest) -> Dict[str, Any]:
-    return run_chat_turn(req)
+    try:
+        return run_chat_turn(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @app.post("/api/analyze-all")
 def analyze_all_endpoint(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
+    try:
+        return _analyze_all(req)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+def _analyze_all(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
     res_out = calculate_residency(req.residency)
     tx_out: Optional[TransactionsAnalyzeResponse] = (
         analyze_transactions(req.transactions) if req.transactions else None

@@ -1,5 +1,7 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field
+from datetime import date
+
+from pydantic import BaseModel, Field, validator
 
 
 def dump_model(model: BaseModel) -> Dict[str, Any]:
@@ -17,7 +19,19 @@ def copy_model(model: BaseModel, update: Dict[str, Any]) -> Any:
 class VisaStay(BaseModel):
     visa_type: str
     entry_date: str
-    exit_date: str
+    exit_date: Optional[str] = None
+
+    @validator("entry_date", "exit_date")
+    def validate_date_format(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError as exc:
+            raise ValueError("date must use YYYY-MM-DD format") from exc
+        if parsed.isoformat() != value:
+            raise ValueError("date must use YYYY-MM-DD format")
+        return value
 
 
 class ResidencyRequest(BaseModel):
@@ -168,27 +182,27 @@ class TaxCalculationResponse(BaseModel):
 
 class Form8843Request(BaseModel):
     tax_year: int = 2025
-    first_name: str = "Ali"
-    last_name: str = "Abylgazy"
-    us_address: str = "500 El Camino Real, Stanford, CA 94305"
-    home_country_address: str = "Astana, Kazakhstan"
-    visa_type: str = "F-1"
-    current_nonimmigrant_status: str = "F-1 Student (OPT)"
-    country_of_citizenship: str = "Kazakhstan"
-    country_of_passport: str = "Kazakhstan"
-    passport_number: str = "N12345678"
-    first_entry_date: str = "2023-08-20"
-    days_present_current_year: int = Field(365, ge=0, le=366)
-    days_present_prior_year_1: int = Field(365, ge=0, le=366)
-    days_present_prior_year_2: int = Field(134, ge=0, le=366)
-    days_excluded_current_year: int = Field(365, ge=0, le=366)
-    is_student: bool = True
-    school_or_program_name: str = "Stanford University"
-    school_or_program_address: str = "450 Jane Stanford Way, Stanford, CA 94305"
-    school_or_program_phone: str = "(650) 723-2300"
-    director_or_dso_name: str = "Jane Smith, Designated School Official (DSO)"
-    director_or_dso_Address: str = "Bechtel International Center, Stanford, CA 94305"
-    director_or_dso_phone: str = "(650) 723-1831"
+    first_name: str = ""
+    last_name: str = ""
+    us_address: str = ""
+    home_country_address: str = ""
+    visa_type: str = ""
+    current_nonimmigrant_status: str = ""
+    country_of_citizenship: str = ""
+    country_of_passport: str = ""
+    passport_number: str = ""
+    first_entry_date: str = ""
+    days_present_current_year: int = Field(0, ge=0, le=366)
+    days_present_prior_year_1: int = Field(0, ge=0, le=366)
+    days_present_prior_year_2: int = Field(0, ge=0, le=366)
+    days_excluded_current_year: int = Field(0, ge=0, le=366)
+    is_student: bool = False
+    school_or_program_name: str = ""
+    school_or_program_address: str = ""
+    school_or_program_phone: str = ""
+    director_or_dso_name: str = ""
+    director_or_dso_Address: str = ""
+    director_or_dso_phone: str = ""
 
 
 class ExplainRequest(BaseModel):

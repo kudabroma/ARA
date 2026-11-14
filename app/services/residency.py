@@ -54,7 +54,8 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         v_type = normalize_visa(stay.visa_type)
         if v_type == "GREEN_CARD":
             has_green_card = True
-        start, end = parse_iso_date(stay.entry_date), parse_iso_date(stay.exit_date)
+        exit_date = stay.exit_date or f"{target_year}-12-31"
+        start, end = parse_iso_date(stay.entry_date), parse_iso_date(exit_date)
         if end < start:
             start, end = end, start
         stays.append((v_type, start, end))

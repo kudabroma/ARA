@@ -12,6 +12,7 @@ export type State = {
   year: number;
   setYear: (year: number) => void;
   plan: "free" | "pro";
+  setPlan: (plan: "free" | "pro") => void;
   inputs: Inputs;
   setInputs: Dispatch<SetStateAction<Inputs>>;
   result: Record<string, any> | null;

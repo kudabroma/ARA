@@ -1,5 +1,5 @@
-export const BASE_URL = "https://YOUR-VERCEL-BACKEND.vercel.app";
-export const backendConfigured = () => !BASE_URL.includes("YOUR-VERCEL-BACKEND");
+export const BASE_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
+export const backendConfigured = () => BASE_URL.length > 0;
 export type Language = "en" | "ru" | "es";
 export const backendLanguage = (language: Language) => (language === "ru" ? "ru" : "en");
 export const canSendChat = (plan: "free" | "pro", sent: number) => plan === "pro" || sent < 5;
@@ -75,12 +75,87 @@ export const initialInputs: Inputs = {
   transactionMode: "csv",
   profile: {},
 };
+export type Form8843Payload = {
+  tax_year: number;
+  first_name: string;
+  last_name: string;
+  us_address: string;
+  home_country_address: string;
+  visa_type: string;
+  current_nonimmigrant_status: string;
+  country_of_citizenship: string;
+  country_of_passport: string;
+  passport_number: string;
+  first_entry_date: string;
+  days_present_current_year: number;
+  days_present_prior_year_1: number;
+  days_present_prior_year_2: number;
+  days_excluded_current_year: number;
+  is_student: boolean;
+  school_or_program_name: string;
+  school_or_program_address: string;
+  school_or_program_phone: string;
+  director_or_dso_name: string;
+  director_or_dso_Address: string;
+  director_or_dso_phone: string;
+};
+export function toForm8843Request(
+  uiProfile: Inputs["profile"],
+  taxYear: number,
+): Form8843Payload {
+  const text = (key: string) => {
+    const value = uiProfile[key];
+    return typeof value === "string" ? value : "";
+  };
+  const number = (key: string) => {
+    const parsed = Number(uiProfile[key] || 0);
+    return Number.isFinite(parsed) ? parsed : 0;
+  };
+  const name = text("name").trim();
+  const firstSpace = name.indexOf(" ");
+  return {
+    tax_year: taxYear,
+    first_name: firstSpace < 0 ? name : name.slice(0, firstSpace),
+    last_name: firstSpace < 0 ? "" : name.slice(firstSpace + 1).trim(),
+    us_address: text("us_address"),
+    home_country_address: text("home_address"),
+    visa_type: text("visa_type"),
+    current_nonimmigrant_status: text("current_nonimmigrant_status"),
+    country_of_citizenship: text("country_of_citizenship"),
+    country_of_passport: text("passport_country"),
+    passport_number: text("passport_number"),
+    first_entry_date: text("first_entry_date"),
+    days_present_current_year: number("days_present_current"),
+    days_present_prior_year_1: number("days_present_prior_1"),
+    days_present_prior_year_2: number("days_present_prior_2"),
+    days_excluded_current_year: number("days_excluded"),
+    is_student: uiProfile["is_student"] === true,
+    school_or_program_name: text("school_name"),
+    school_or_program_address: text("school_address"),
+    school_or_program_phone: text("school_phone"),
+    director_or_dso_name: text("dso_name"),
+    director_or_dso_Address: text("dso_address"),
+    director_or_dso_phone: text("dso_phone"),
+  };
+}
 export function buildBody(input: Inputs, year: number, language: Language) {
   const income = Object.fromEntries(
     Object.entries(input.income)
       .filter(([, v]) => v !== "")
       .map(([k, v]) => [k, Number(v)]),
   );
+  const name = input.profile["name"];
+  const formProfile =
+    typeof name === "string" && name.trim()
+      ? toForm8843Request(
+          {
+            ...input.profile,
+            visa_type: input.visa,
+            country_of_citizenship: input.country,
+          },
+          year,
+        )
+      : undefined;
   return {
     language: backendLanguage(language),
     residency: {
@@ -117,15 +192,7 @@ export function buildBody(input: Inputs, year: number, language: Language) {
             },
           }
         : {}),
-    ...(Object.keys(input.profile).length
-      ? {
-          form_8843_profile: Object.fromEntries(
-            Object.entries(input.profile)
-              .filter(([, v]) => v !== "")
-              .map(([k, v]) => [k, k.startsWith("days_") ? Number(v) : v]),
-          ),
-        }
-      : {}),
+    ...(formProfile ? { form_8843_profile: formProfile } : {}),
   };
 }
 export function presetInputs(payload: Record<string, any>): Inputs {
@@ -154,6 +221,39 @@ export function presetInputs(payload: Record<string, any>): Inputs {
         .map((k) => [k, String(t[k])]),
     ),
     csv: payload["transactions"]?.csv_text || "",
-    profile: payload["form_8843_profile"] || {},
+    profile: payload["form_8843_profile"]
+      ? {
+          name: [
+            payload["form_8843_profile"].first_name,
+            payload["form_8843_profile"].last_name,
+          ]
+            .filter(Boolean)
+            .join(" "),
+          us_address: payload["form_8843_profile"].us_address || "",
+          home_address: payload["form_8843_profile"].home_country_address || "",
+          current_nonimmigrant_status:
+            payload["form_8843_profile"].current_nonimmigrant_status || "",
+          passport_country: payload["form_8843_profile"].country_of_passport || "",
+          passport_number: payload["form_8843_profile"].passport_number || "",
+          first_entry_date: payload["form_8843_profile"].first_entry_date || "",
+          days_present_current: String(
+            payload["form_8843_profile"].days_present_current_year ?? 0,
+          ),
+          days_present_prior_1: String(
+            payload["form_8843_profile"].days_present_prior_year_1 ?? 0,
+          ),
+          days_present_prior_2: String(
+            payload["form_8843_profile"].days_present_prior_year_2 ?? 0,
+          ),
+          days_excluded: String(payload["form_8843_profile"].days_excluded_current_year ?? 0),
+          is_student: Boolean(payload["form_8843_profile"].is_student),
+          school_name: payload["form_8843_profile"].school_or_program_name || "",
+          school_address: payload["form_8843_profile"].school_or_program_address || "",
+          school_phone: payload["form_8843_profile"].school_or_program_phone || "",
+          dso_name: payload["form_8843_profile"].director_or_dso_name || "",
+          dso_address: payload["form_8843_profile"].director_or_dso_Address || "",
+          dso_phone: payload["form_8843_profile"].director_or_dso_phone || "",
+        }
+      : {},
   };
 }

@@ -13,15 +13,13 @@ flowchart LR
   BE -->|JSON или PDF| FE
 ```
 
-Фронтенд сейчас содержит placeholder для URL API — фактический HTTP-вызов не заработает до его замены: [Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L1).
-
 ## 2. Бэкенд
 
 ### Запуск и маршрутизация
 
 - Точка входа Vercel — [api/index.py](./api/index.py#L1): добавляет корень проекта в `sys.path` и экспортирует `app` из [app/main.py](./app/main.py#L28).
-- [vercel.json](./vercel.json#L1) перенаправляет каждый путь `/(.*)` на `/api/index`. Это catch-all, включая `/`; FastAPI затем выбирает маршрут по исходному HTTP-пути.
-- FastAPI объявляет CORS с `allow_origins=["*"]`, `allow_credentials=True`, любыми методами и заголовками: [app/main.py](./app/main.py#L30). Браузер не разрешает credentialed CORS с wildcard origin в стандартном режиме; клиентские запросы сейчас не задают `credentials`.
+- Файла `vercel.json` в корне сейчас нет. Поэтому rewrite `/(.*) -> /api/index` отсутствует; маршрутизацию `/api/*` при деплое из корня нужно отдельно проверить/настроить в Vercel.
+- FastAPI объявляет CORS с `allow_origins=["*"]`, `allow_credentials=False`, любыми методами и заголовками: [app/main.py](./app/main.py#L30). Frontend не отправляет cookies.
 
 ### HTTP API
 
@@ -40,7 +38,7 @@ flowchart LR
 | `POST /api/chat` | `messages[{role,content}]`, `collected_profile`, `language`. | `reply`, профиль, `missing_fields`, `suggested_replies`, `live_calculation`. |
 | `POST /api/analyze-all` | Обязательный `residency`; опциональные `taxes`, `transactions`, `form_8843_profile`, `language`. | `residency`, `transactions`, `taxes`, опциональный PDF в base64, `ai_explanation`, `subscription_active`. |
 
-Маршруты объявлены в [app/main.py](./app/main.py#L39). Только отдельные residency/tax/transaction обработчики оборачивают ошибки в HTTP 400; `/api/analyze-all` и `/api/chat` такого перехвата не имеют.
+Маршруты объявлены в [app/main.py](./app/main.py#L39). `/api/analyze-all` и `/api/chat` преобразуют `ValueError` в HTTP 400; остальные расчётные маршруты также возвращают HTTP 400 при ошибке. Невалидный формат даты отклоняется Pydantic как HTTP 422.
 
 ### Модули и типы расчётов
 
@@ -49,7 +47,8 @@ flowchart LR
 - [app/services/transactions.py](./app/services/transactions.py#L14) разбирает CSV и классифицирует операции регулярными выражениями в `RULES`. Это правила, не AI: поле `use_ai` объявлено в схеме, но в реализации не читается. Неизвестные описания попадают в `PERSONAL`.
 - [app/services/pdf_8843.py](./app/services/pdf_8843.py#L17) строит PDF с ReportLab; при отсутствии ReportLab использует упрощённый PDF fallback.
 - [app/services/advisor.py](./app/services/advisor.py#L90) обращается к LLM для текстового объяснения/ответа чата; профиль и результаты также предварительно обрабатываются локальными функциями residency/taxes. Список провайдеров и fallback находятся здесь же.
-- [app/schemas.py](./app/schemas.py#L17) содержит входные/выходные Pydantic-модели; [app/presets.py](./app/presets.py#L3) — 3 жёстко заданных демонстрационных payload.
+- [app/schemas.py](./app/schemas.py#L17) содержит входные/выходные Pydantic-модели; `VisaStay.exit_date` допускает отсутствие значения, которое сервис считает как 31 декабря налогового года. Поля `entry_date` и `exit_date` проверяются на формат `YYYY-MM-DD`.
+- [app/presets.py](./app/presets.py#L3) — 3 жёстко заданных демонстрационных payload. Персональные defaults модели Form 8843 пустые; данные демо-профилей находятся в presets.
 - [app/config.py](./app/config.py#L1) содержит визовые группы и `TAX_YEARS`: ставки/скобки, standard deduction, Social Security wage base, квартальные и годовые сроки. Данные заданы только для 2025 и 2026; неизвестный год сервисы подменяют на 2025.
 
 ### Переменные окружения и AI fallback
@@ -70,32 +69,29 @@ flowchart LR
 
 ### Тесты
 
-[tests/test_api.py](./tests/test_api.py#L1) покрывает health и число presets, интеграционный `analyze-all` на первом preset (статус, ожидаемый FICA refund и сигнатура PDF), а также два шага chat-профиля. Тесты не запускались по требованию. Команда из корня backend: `python -m pytest`.
+[tests/test_api.py](./tests/test_api.py#L1) покрывает health/presets, интеграционный `analyze-all`, chat и правила дат; frontend-тесты проверяют маппинг Form 8843. Команда из корня backend: `python -m pytest`.
 
 ## 3. Фронтенд (`Frontend/`)
 
 ### Стек, конфигурация и страницы
 
 - Зависимости по [Frontend/package.json](./Frontend/package.json#L45): TanStack Router `1.170.41`, TanStack Start `1.168.60`, React/React DOM `^19.2.0`, Vite `8.1.5`, TypeScript `^5.8.3`. Скрипты: `dev` — `vite dev`, `build` — `vite build`, `preview` — `vite preview`, `lint` — `eslint .`, `test` — `vitest run` ([package.json](./Frontend/package.json#L7)).
-- Файловые маршруты: `/` — workspace с формой, результатами, чатом и документами ([src/routes/index.tsx](./Frontend/src/routes/index.tsx#L7)); `/pricing` — планы ([pricing.tsx](./Frontend/src/routes/pricing.tsx#L3)); `/checkout` — заглушка оплаты ([checkout.tsx](./Frontend/src/routes/checkout.tsx#L3)); `/success` — экран «оплата не выполнена» ([success.tsx](./Frontend/src/routes/success.tsx#L3)). Shell/общий layout задаёт [src/routes/__root.tsx](./Frontend/src/routes/__root.tsx#L11).
-- URL API не берётся из `VITE_API_URL`: `BASE_URL` захардкожен в [Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L1) как `https://YOUR-VERCEL-BACKEND.vercel.app`. При placeholder `backendConfigured()` возвращает false, а `request()` бросает `not_connected`.
+- Файловые маршруты: `/` — workspace с формой, результатами, чатом и документами ([src/routes/index.tsx](./Frontend/src/routes/index.tsx#L7)); `/pricing` — планы ([pricing.tsx](./Frontend/src/routes/pricing.tsx#L3)); `/checkout` — локальная тестовая форма ([checkout.tsx](./Frontend/src/routes/checkout.tsx#L3)); `/success` — подтверждение Pro ([success.tsx](./Frontend/src/routes/success.tsx#L3)). Shell/общий layout задаёт [src/routes/__root.tsx](./Frontend/src/routes/__root.tsx#L11).
+- URL API задаётся `VITE_API_URL`; `BASE_URL` удаляет завершающий `/`, а `backendConfigured()` истинен только при непустом адресе: [Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L1). В `Frontend/.env.local` указан `https://ara-api-orpin.vercel.app`; `.env.local` игнорируется правилом `*.local`.
 - API-вызовы фронтенда: `/api/demo-presets` и `/api/analyze-all` из [calculation.tsx](./Frontend/src/components/ara/calculation.tsx#L113); `/api/chat` и `/api/analyze-all` из [chat.tsx](./Frontend/src/components/ara/chat.tsx#L27). Отдельные residency, taxes, transactions и Form PDF endpoints напрямую фронтендом не вызываются.
 
 ### Paywall, i18n и данные
 
-- Состояние `plan` не загружается с сервера/платёжной системы, а всегда задаётся как `"free"` в [provider.tsx](./Frontend/src/components/ara/provider.tsx#L35). Free/Pro-ограничения работают только в React UI: блокировки результатов/документов и лимит 5 сообщений; серверной авторизации/проверки плана нет ([api.ts](./Frontend/src/lib/ara/api.ts#L5), [results.tsx](./Frontend/src/components/ara/results.tsx#L14)).
-- Stripe не подключён: Stripe SDK/серверного payment endpoint нет; checkout сообщает об отключённых платежах и кнопка disabled ([plans.tsx](./Frontend/src/components/ara/plans.tsx#L69)).
+- `plan` хранится в React state и меняется на `pro` после прохождения локальной тестовой формы; состояние действует только до перезагрузки/закрытия вкладки ([provider.tsx](./Frontend/src/components/ara/provider.tsx#L8), [plans.tsx](./Frontend/src/components/ara/plans.tsx#L53)). Ограничения Free/Pro работают только в UI; backend не проверяет план.
+- Stripe не подключён. Checkout проверяет email, Luhn, срок карты и CVC в браузере, ничего не отправляет и не сохраняет; это демонстрация разблокировки, а не платёж.
 - Словари EN/RU/ES находятся в [Frontend/src/lib/ara/i18n.ts](./Frontend/src/lib/ara/i18n.ts#L2), [RU](./Frontend/src/lib/ara/i18n.ts#L187), [ES](./Frontend/src/lib/ara/i18n.ts#L374). Язык хранится в `localStorage` только для настройки интерфейса ([provider.tsx](./Frontend/src/components/ara/provider.tsx#L17)). `backendLanguage()` сохраняет `ru`, а `en` и `es` преобразует в `en` ([api.ts](./Frontend/src/lib/ara/api.ts#L4)).
 - Введённые данные/результаты хранятся в React state на время сессии; отдельного backend-хранилища в коде не найдено. Выбранный язык сохраняется в `localStorage`.
 
 ### Контракт фронтенда и backend
 
-- Frontend вызывает только `demo-presets`, `analyze-all` и `chat`, перечисленные выше. `/api/analyze-all` возвращает реальный результат backend, но представление ряда полей не совпадает с контрактом: UI просит `net_1099_income`, `standard_deduction`, `qbi_deduction`, `money_saved_by_deductions`, тогда как backend возвращает `net_self_employment_income`, `standard_deduction_applied`, `qbi_deduction_applied`, `Deduction_tax_savings_usd`. Несколько строк breakdown поэтому показывают `—` ([results.tsx](./Frontend/src/components/ara/results.tsx#L92), [app/schemas.py](./app/schemas.py#L130)).
-- Backend выдаёт транзакции с `classification`, `category_summary` и totals на верхнем уровне, а экран читает `t.category` и `transactions.totals`; поле категории будет пустым, totals не будут показаны ([results.tsx](./Frontend/src/components/ara/results.tsx#L100), [app/schemas.py](./app/schemas.py#L80)).
-- Экран также читает `erroneous_fica_next_steps`, которого нет в ответе backend ([results.tsx](./Frontend/src/components/ara/results.tsx#L246)).
-- Chat API кладёт расчёт в `live_calculation.taxes.net_tax_owed_or_refund`, UI читает `live_calculation.net_tax_owed_or_refund`; live estimate останется пустым ([advisor.py](./app/services/advisor.py#L418), [chat.tsx](./Frontend/src/components/ara/chat.tsx#L206)).
-- Профиль Form 8843 на фронтенде содержит `name`, `home_address`, `passport_country`, `days_present_current`, `days_excluded` и другие UI-ключи ([calculation.tsx](./Frontend/src/components/ara/calculation.tsx#L42)), а backend ждёт `first_name`, `home_country_address`, `country_of_passport`, `days_present_current_year`, `days_excluded_current_year` ([app/schemas.py](./app/schemas.py#L169)). `buildBody()` передаёт объект без преобразования; лишние поля Pydantic по умолчанию игнорирует, поэтому PDF может использовать demo-default значения вместо данных пользователя ([api.ts](./Frontend/src/lib/ara/api.ts#L122)).
-- `VisaStay.exit_date` обязателен как строка на backend, но UI объявляет его необязательным и при пустом поле отправляет `null`: запрос с таким пребыванием получает ошибку валидации 422 ([app/schemas.py](./app/schemas.py#L17), [api.ts](./Frontend/src/lib/ara/api.ts#L90)).
+- Frontend вызывает `demo-presets`, `analyze-all` и `chat`. Поля результатов, транзакций (`classification`, `schedule_c_category`, top-level totals, `category_summary`) и live-оценки чата читаются по контракту backend. Для Form 8843 `buildBody()` преобразует UI-поля в `Form8843Request`; профиль без имени не отправляется ([Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L102), [app/schemas.py](./app/schemas.py#L184)).
+- Для FICA frontend показывает статичную инструкцию Form 843/8316 из локализаций: суммы ответа backend не подменяются и не выдумываются ([Frontend/src/components/ara/results.tsx](./Frontend/src/components/ara/results.tsx#L256), [Frontend/src/lib/ara/i18n.ts](./Frontend/src/lib/ara/i18n.ts#L96)).
+- При пустом `exit_date` backend использует 31 декабря налогового года; неверный формат отклоняется валидатором ([app/services/residency.py](./app/services/residency.py#L57), [app/schemas.py](./app/schemas.py#L24)).
 
 ### Lovable и влияние при деплое
 
@@ -107,51 +103,46 @@ flowchart LR
 
 ### Backend на Vercel
 
-1. Создать Vercel-проект с Root Directory = корень репозитория (каталог, где находятся `vercel.json`, `api/`, `app/`, `requirements.txt`).
-2. Оставить Python entrypoint `api/index.py` и rewrite из [vercel.json](./vercel.json#L1).
+1. Создать Vercel-проект с Root Directory = корень backend (каталог с `api/`, `app/`, `requirements.txt`).
+2. Оставить Python entrypoint [api/index.py](./api/index.py#L1). Корневой `vercel.json` намеренно отсутствует, поэтому до деплоя нужно проверить и настроить Vercel routing для `/api/*`; фактическая конфигурация проекта не хранится в репозитории.
 3. Добавить в Environment Variables один или несколько ключей LLM-провайдеров из таблицы выше только если нужны реальные AI-тексты. Без них API и расчёты работают с deterministic fallback.
 
 ### Frontend
 
 1. Создать отдельный проект, Root Directory = `Frontend`; build script — `npm run build` (или соответствующий установленному lockfile package manager), development — `npm run dev`.
-2. Перед использованием заменить placeholder `BASE_URL` на домен backend. Переменной `VITE_API_URL` код не читает; переменных frontend, обязательных по текущему коду, не найдено.
+2. Задать `VITE_API_URL` как URL backend (локальный шаблон описан в `Frontend/.env.example`; production URL указан в `.env.local`, который не коммитится).
 3. Текущий Vite wrapper настроен на Nitro Cloudflare по умолчанию, а не явно на Vercel. Для Vercel SSR возможен конфликт формата/target server bundle; проверьте адаптер/target и deployment output, либо используйте совместимый с Cloudflare хостинг. Скрипта `deploy` в `package.json` нет.
-4. Корневой rewrite `/(.*) -> /api/index` относится к Vercel-проекту, чей Root Directory — корень репозитория. При отдельном проекте с Root Directory = `Frontend` этот родительский `vercel.json` обычно не является его конфигом; проверьте scope/настройки проекта Vercel, чтобы не направить frontend-маршруты на FastAPI.
+4. Корневого `vercel.json` нет; фронтенд-проект с Root Directory = `Frontend` не должен зависеть от backend routing. Если backend и frontend деплоятся как отдельные проекты, настройка маршрутов одного проекта не должна попадать в другой.
 
 ## 5. Риски и проблемы
 
 ### Критично
 
-1. **Frontend не подключён к backend.** `BASE_URL` — буквальный placeholder, поэтому `backendConfigured()` выключает presets, а запросы завершаются `not_connected`. Заменить на реальный адрес API или внедрить сборочную конфигурацию URL: [Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L1).
-2. **Form 8843 может содержать не данные пользователя.** UI и API используют разные имена полей профиля; backend игнорирует незнакомые ключи и подставляет defaults вроде Ali Abylgazy / Stanford. Согласовать DTO/маппинг и убрать персонально выглядящие defaults: [Frontend/src/components/ara/calculation.tsx](./Frontend/src/components/ara/calculation.tsx#L42), [Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L122), [app/schemas.py](./app/schemas.py#L169).
+1. **Vercel-маршрутизация backend не задана в репозитории.** Корневой `vercel.json` отсутствует; проверить, что задеплоенный проект маршрутизирует `/api/*` в `api/index.py`, иначе frontend не сможет обратиться к API. Настроить маршрутизацию в Vercel без смешивания с отдельным frontend-проектом.
 
 ### Важно
 
-1. **Результаты частично отображаются пустыми/неверными.** Несовпадают ключи налоговых полей, transaction `category` vs `classification`, totals и FICA next steps; привести UI к схеме backend либо согласовать контракт: [Frontend/src/components/ara/results.tsx](./Frontend/src/components/ara/results.tsx#L92), [app/schemas.py](./app/schemas.py#L80).
-2. **Пустая дата выезда приводит к 422.** Форма разрешает оставить поле пустым, но отправляет `null`, а модель требует строку. Согласовать nullable-модель/поведение формы: [Frontend/src/components/ara/calculation.tsx](./Frontend/src/components/ara/calculation.tsx#L279), [Frontend/src/lib/ara/api.ts](./Frontend/src/lib/ara/api.ts#L90), [app/schemas.py](./app/schemas.py#L17).
-3. **В некоторых путях некорректная дата превращается в 500.** `parse_iso_date()` вызывает `datetime.strptime`; `/api/analyze-all` и `/api/chat` не перехватывают ошибку парсинга, в отличие от отдельного residency endpoint. Добавить валидацию даты в schema или единое преобразование в 4xx: [app/services/residency.py](./app/services/residency.py#L36), [app/main.py](./app/main.py#L129).
-4. **Paywall не является оплатой/авторизацией.** Frontend всегда хранит `plan: "free"`, checkout disabled, при этом backend сообщает `subscription_active: true` и health — активный Pro tier. Не использовать эти UI/health-флаги как доказательство оплаты; подключить серверную верификацию платежа и права доступа: [provider.tsx](./Frontend/src/components/ara/provider.tsx#L35), [plans.tsx](./Frontend/src/components/ara/plans.tsx#L87), [app/main.py](./app/main.py#L43), [app/main.py](./app/main.py#L134).
-5. **CORS слишком широк для пользовательских финансовых данных.** `*` вместе с credentials создаёт некорректную credentialed-конфигурацию и не ограничивает origin. Задать список реальных frontend-origin и включать credentials только при необходимости: [app/main.py](./app/main.py#L30).
-6. **LLM получает текст запроса и профиль/расчёт.** В chat prompt сериализуются `collected_profile`, residency/tax результаты и последнее сообщение; не передавать секреты/лишние персональные сведения и явно сообщить пользователю об обработке провайдером: [app/services/advisor.py](./app/services/advisor.py#L356).
-7. **Классификация транзакций — эвристики, не AI и не гарантия вычета.** `use_ai` не меняет поведение, неизвестные описания считаются `PERSONAL`; правила содержат фиксированные проценты deductible. Обозначить результат как предварительную классификацию и дать проверку пользователю: [app/schemas.py](./app/schemas.py#L93), [app/services/transactions.py](./app/services/transactions.py#L14).
-8. **Год вне таблицы молча считается 2025.** Это может выдать результат другого налогового года без ошибки; валидировать поддерживаемые годы или возвращать явную ошибку: [app/services/residency.py](./app/services/residency.py#L45), [app/services/taxes.py](./app/services/taxes.py#L45).
+1. **Checkout не является оплатой или авторизацией.** Тестовый checkout меняет только клиентский React state; backend не подтверждает план, а ответы содержат `subscription_active: true` независимо от оплаты. Не представлять Pro как реально оплаченный; для production нужны платежный провайдер и серверная проверка прав: [Frontend/src/components/ara/provider.tsx](./Frontend/src/components/ara/provider.tsx#L8), [Frontend/src/components/ara/plans.tsx](./Frontend/src/components/ara/plans.tsx#L53), [app/main.py](./app/main.py#L189).
+2. **CORS разрешает любой origin.** `allow_credentials=False` исключает cookies, но `allow_origins=["*"]` всё равно доступен любому сайту; заменить на список frontend-origin перед production: [app/main.py](./app/main.py#L30).
+3. **LLM получает текст запроса и профиль/расчёт.** В prompt чата могут попадать `collected_profile`, результаты residency/tax и сообщения пользователя; сообщить о передаче данных и не включать ненужные персональные сведения: [app/services/advisor.py](./app/services/advisor.py#L356).
+4. **Классификация транзакций — эвристики, не AI и не гарантия вычета.** `use_ai` не меняет поведение, неизвестные описания считаются `PERSONAL`; пользователь должен проверять предварительные категории: [app/schemas.py](./app/schemas.py#L93), [app/services/transactions.py](./app/services/transactions.py#L14).
+5. **Год вне таблицы молча считается 2025.** Это может выдать результат другого налогового года без ошибки; валидировать поддерживаемые годы или возвращать явную ошибку: [app/services/residency.py](./app/services/residency.py#L45), [app/services/taxes.py](./app/services/taxes.py#L45).
 
 ### Мелочь / проверка перед релизом
 
-1. **Демонстрационные сценарии захардкожены.** Backend отдаёт три заполненных примера, в том числе вымышленные личные данные/суммы; sample CSV также встроен во frontend. Это входные demo-данные, а не подмена вычисленного результата; явно отделять их от пользовательских данных и не показывать как реальные кейсы: [app/presets.py](./app/presets.py#L3), [Frontend/src/components/ara/calculation.tsx](./Frontend/src/components/ara/calculation.tsx#L399).
-2. **AI-классификация может восприниматься как доступная, но отсутствует.** Поле `use_ai=True` присутствует в API-контракте, однако обработчик его игнорирует: [app/schemas.py](./app/schemas.py#L98), [app/services/transactions.py](./app/services/transactions.py#L106).
-3. **Проверить ignore-файлы.** Backend `.gitignore` игнорирует `.env`, `.venv`, `__pycache__`, но не содержит `node_modules`/`dist`; frontend игнорирует их в собственном [Frontend/.gitignore](./Frontend/.gitignore#L1). `.env.example` содержит только пустые строки ключей. Корневой шаблон `.env` не покрывает все варианты вроде `.env.production` — не добавлять туда секреты: [`.gitignore`](./.gitignore#L1).
-4. **Frontend Vercel-target не подтверждён конфигом.** Конфиг указывает Cloudflare default; проверить SSR runtime/output перед релизом на Vercel: [Frontend/vite.config.ts](./Frontend/vite.config.ts#L1).
+1. **Демонстрационные сценарии содержат фиксированные входные данные.** Backend отдаёт три примера, а во frontend есть sample CSV; это demo-входы, а не подмена вычисленных результатов. Явно помечать их как демонстрационные: [app/presets.py](./app/presets.py#L3), [Frontend/src/components/ara/calculation.tsx](./Frontend/src/components/ara/calculation.tsx#L399).
+2. **Frontend target для Vercel не подтверждён.** Конфиг указывает Cloudflare default; проверить SSR runtime/output перед релизом на Vercel: [Frontend/vite.config.ts](./Frontend/vite.config.ts#L1).
+3. **Проверить правила ignore перед публикацией.** Backend `.gitignore` игнорирует `.env`, `.venv`, `__pycache__`; Frontend дополнительно игнорирует `node_modules`, `dist` и `*.local`. Шаблон `.env.production` явно не игнорируется — не хранить в нём секреты: [Frontend/.gitignore](./Frontend/.gitignore#L1), [`.gitignore`](./.gitignore#L1).
 
-**Фейковые результаты:** детерминированные расчёты действительно запускаются в backend; обнаружены захардкоженные demo-входы и Form 8843 defaults, которые из-за несовпадения ключей могут попасть в документ. Иных мест, где экран напрямую подменяет рассчитанный результат готовой фиктивной суммой, не найдено.
+**Фейковые результаты:** основные суммы рассчитываются backend-кодом; обнаружены только фиксированные demo-входы. Form 8843 defaults очищены, а UI-результаты приведены к схеме backend.
 
 ## 6. Чек-лист перед демо
 
-- [ ] Развернуть backend на Vercel из корня и проверить `/api/health`.
-- [ ] Установить реальный backend URL во frontend; проверить CORS с домена фронтенда.
+- [ ] Настроить routing backend-проекта Vercel для `/api/*`, задеплоить из корня и проверить `/api/health`.
+- [ ] Задать `VITE_API_URL` во frontend; проверить CORS с домена фронтенда.
 - [ ] Прогнать реальный пользовательский сценарий: residency, налог, транзакции, Form 8843; проверить поля результата и PDF на персональных данных, а не defaults.
 - [ ] Проверить сценарий без LLM-ключей и с ключом: deterministic fallback должен работать.
-- [ ] Исправить контракт дат и проверить все даты, которые пользователь может оставить пустыми.
+- [ ] Проверить пустую дату выезда и ответы 422/400 для неверных дат.
 - [ ] Проверить frontend build/deploy на выбранном хостинге (Cloudflare или Vercel) и прямое открытие `/pricing`, `/checkout`, `/success`.
-- [ ] Не демонстрировать Pro как оплаченную функцию: Stripe/серверная проверка платежа отсутствуют.
+- [ ] Не демонстрировать тестовый Pro checkout как оплату: Stripe/серверная проверка платежа отсутствуют.
 - [ ] До показа заменить demo-пресеты на явно помеченные примеры и не представлять их значения как реальные данные клиента.

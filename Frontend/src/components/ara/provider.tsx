@@ -5,6 +5,7 @@ import { AraContext, type Section, type Message } from "./context";
 export function AraProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>("en");
   const [year, setYear] = useState(2025);
+  const [plan, setPlan] = useState<"free" | "pro">("free");
   const [inputs, setInputs] = useState<Inputs>(initialInputs);
   const [result, setResult] = useState<Record<string, any> | null>(null);
   const [section, setSection] = useState<Section>("new");
@@ -32,7 +33,8 @@ export function AraProvider({ children }: { children: ReactNode }) {
         t: (k) => translate(language, k),
         year,
         setYear,
-        plan: "free",
+        plan,
+        setPlan,
         inputs,
         setInputs,
         result,

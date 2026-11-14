@@ -43,6 +43,7 @@ const profileKeys = [
   "name",
   "us_address",
   "home_address",
+  "current_nonimmigrant_status",
   "passport_country",
   "passport_number",
   "first_entry_date",
