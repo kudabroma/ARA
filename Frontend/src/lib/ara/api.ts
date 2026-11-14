@@ -40,6 +40,81 @@ export async function request<T>(path: string, body?: unknown): Promise<T> {
   }
   return data as T;
 }
+/** Recursively drops null/undefined values so the backend falls back to field defaults. */
+export function cleanPayload<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.filter((v) => v !== null && v !== undefined).map(cleanPayload) as T;
+  }
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([, v]) => v !== null && v !== undefined)
+        .map(([k, v]) => [k, cleanPayload(v)]),
+    ) as T;
+  }
+  return value;
+}
+export type AnalyzeBody = Record<string, any>;
+export const analyzeAll = <T = Record<string, any>>(body: AnalyzeBody) =>
+  request<T>("/api/analyze-all", cleanPayload(body));
+const chatTaxNumbers = [
+  "gross_1099_income",
+  "business_deductions",
+  "w2_wages",
+  "w2_federal_withheld",
+  "w2_fica_withheld",
+] as const;
+/** Maps the chat's collected_profile to an analyze-all body; missing numbers become 0, missing strings are omitted. */
+export function chatProfileBody(
+  profile: Record<string, any>,
+  year: number,
+  language: Language,
+): AnalyzeBody {
+  if (profile["residency"]) return cleanPayload({ ...profile, language: backendLanguage(language) });
+  const taxYear = profile["tax_year"] || year;
+  const stays = Array.isArray(profile["stays"])
+    ? profile["stays"]
+    : profile["entry_date"]
+      ? [{ visa_type: profile["visa_type"] || "Other", entry_date: profile["entry_date"] }]
+      : [];
+  const numbers = Object.fromEntries(
+    chatTaxNumbers.map((k) => {
+      const n = Number(profile[k]);
+      return [k, profile[k] === null || profile[k] === undefined || !Number.isFinite(n) ? 0 : n];
+    }),
+  );
+  return cleanPayload({
+    language: backendLanguage(language),
+    residency: {
+      tax_year: taxYear,
+      stays,
+      country_of_citizenship: profile["country_of_citizenship"],
+      prior_exempt_calendar_years: profile["prior_exempt_calendar_years"] || [],
+      has_green_card: Boolean(profile["has_green_card"]),
+    },
+    taxes: {
+      tax_year: taxYear,
+      visa_type: profile["visa_type"],
+      country_of_citizenship: profile["country_of_citizenship"],
+      ...numbers,
+    },
+  });
+}
+const compactMoney = (n: number) =>
+  n >= 1000 ? `$${Math.round(n / 100) / 10}k`.replace(".0k", "k") : `$${Math.round(n)}`;
+/** Short history label, e.g. "OPT · W-2 $45k + 1099 $28k". */
+export function calculationLabel(body: AnalyzeBody): string {
+  const taxes = body["taxes"] || {};
+  const visa = taxes.visa_type || body["residency"]?.stays?.[0]?.visa_type || "";
+  const income = [
+    ["W-2", Number(taxes.w2_wages) || 0],
+    ["1099", Number(taxes.gross_1099_income) || 0],
+  ]
+    .filter(([, v]) => (v as number) > 0)
+    .map(([k, v]) => `${k} ${compactMoney(v as number)}`)
+    .join(" + ");
+  return [visa, income].filter(Boolean).join(" · ") || "—";
+}
 export const money = (value: unknown) =>
   typeof value === "number"
     ? new Intl.NumberFormat("en-US", {

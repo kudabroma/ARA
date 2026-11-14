@@ -3,7 +3,40 @@ from datetime import date
 
 from pydantic import BaseModel, Field, validator
 
+try:  # pydantic v2
+    from pydantic import model_validator
+except ImportError:  # pragma: no cover - pydantic v1 fallback
+    model_validator = None
+    from pydantic import root_validator
+
 Language = Literal["en", "ru", "es"]
+
+
+def _drop_nulls_for_defaulted_fields(model_cls: Any, data: Any) -> Any:
+    """Treat an explicit null as "not provided" so the field falls back to its default."""
+    if not isinstance(data, dict):
+        return data
+    fields = getattr(model_cls, "model_fields", None) or getattr(model_cls, "__fields__", {})
+    def has_default(name: str) -> bool:
+        field = fields[name]
+        is_required = field.is_required() if callable(getattr(field, "is_required", None)) else field.required
+        return not is_required
+    return {k: v for k, v in data.items() if not (v is None and k in fields and has_default(k))}
+
+
+class NullToDefaultModel(BaseModel):
+    if model_validator is not None:
+
+        @model_validator(mode="before")
+        @classmethod
+        def _null_to_default(cls, data: Any) -> Any:
+            return _drop_nulls_for_defaulted_fields(cls, data)
+
+    else:  # pragma: no cover
+
+        @root_validator(pre=True)
+        def _null_to_default(cls, values: Any) -> Any:
+            return _drop_nulls_for_defaulted_fields(cls, values)
 
 
 def dump_model(model: BaseModel) -> Dict[str, Any]:
@@ -36,7 +69,7 @@ class VisaStay(BaseModel):
         return value
 
 
-class ResidencyRequest(BaseModel):
+class ResidencyRequest(NullToDefaultModel):
     language: Language = "en"
     tax_year: int = 2025
     stays: List[VisaStay] = Field(default_factory=list)
@@ -126,7 +159,7 @@ class TransactionsAnalyzeResponse(BaseModel):
     transactions: List[CategorizedTransaction]
 
 
-class TaxCalculationRequest(BaseModel):
+class TaxCalculationRequest(NullToDefaultModel):
     language: Language = "en"
     tax_year: int = 2025
     filing_status: str = "single"

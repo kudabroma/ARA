@@ -224,6 +224,24 @@ const en = {
   estimatedSavings: "Estimated tax savings",
   categorySummary: "Deductible expenses by category",
   languageRefreshFailed: "Could not refresh results in the selected language. Please run the calculation again.",
+  missingData: "Missing data: {fields}",
+  fillInForm: "Fill in the form",
+  history: "Calculation history",
+  historyEmpty: "Your calculations will appear here",
+  historyPro: "Calculation history in Pro",
+  sourceForm: "Form",
+  sourceChat: "Chat",
+  sourcePreset: "Demo",
+  editEntry: "Edit",
+  deleteEntry: "Delete",
+  compare: "Compare",
+  compareTitle: "Comparison",
+  compareHint: "Select two calculations to compare",
+  closeCompare: "Close comparison",
+  compareStatus: "Status",
+  compareDeductions: "Deductions",
+  compareFica: "FICA refund",
+  compareNet: "Result",
 };
 const ru: Partial<typeof en> = {
   residentQuestion: "Резидент или нерезидент?",
@@ -454,6 +472,24 @@ const ru: Partial<typeof en> = {
   estimatedSavings: "Расчётная экономия на налогах",
   categorySummary: "Вычеты по категориям",
   languageRefreshFailed: "Не удалось обновить результаты на выбранном языке. Запустите расчёт ещё раз.",
+  missingData: "Не хватает данных: {fields}",
+  fillInForm: "Заполнить в форме",
+  history: "История расчётов",
+  historyEmpty: "Здесь появятся ваши расчёты",
+  historyPro: "История расчётов в Pro",
+  sourceForm: "Форма",
+  sourceChat: "Чат",
+  sourcePreset: "Демо",
+  editEntry: "Изменить",
+  deleteEntry: "Удалить",
+  compare: "Сравнить",
+  compareTitle: "Сравнение",
+  compareHint: "Отметьте два расчёта для сравнения",
+  closeCompare: "Закрыть сравнение",
+  compareStatus: "Статус",
+  compareDeductions: "Вычеты",
+  compareFica: "Возврат FICA",
+  compareNet: "Итог",
 };
 const es: Partial<typeof en> = {
   residentQuestion: "¿Residente o no residente?",
@@ -681,7 +717,43 @@ const es: Partial<typeof en> = {
   estimatedSavings: "Ahorro fiscal estimado",
   categorySummary: "Deducciones por categoría",
   languageRefreshFailed: "No se pudieron actualizar los resultados en el idioma seleccionado. Vuelve a calcular.",
+  missingData: "Faltan datos: {fields}",
+  fillInForm: "Completar en el formulario",
+  history: "Historial de cálculos",
+  historyEmpty: "Aquí aparecerán tus cálculos",
+  historyPro: "Historial de cálculos en Pro",
+  sourceForm: "Formulario",
+  sourceChat: "Chat",
+  sourcePreset: "Demo",
+  editEntry: "Editar",
+  deleteEntry: "Eliminar",
+  compare: "Comparar",
+  compareTitle: "Comparación",
+  compareHint: "Marca dos cálculos para compararlos",
+  closeCompare: "Cerrar comparación",
+  compareStatus: "Estado",
+  compareDeductions: "Deducciones",
+  compareFica: "Devolución FICA",
+  compareNet: "Resultado",
 };
 export type Key = keyof typeof en;
+export const isKey = (key: string): key is Key => key in en;
+const fieldAliases: Record<string, Key> = {
+  country_of_citizenship: "country",
+  visa_type: "visa",
+  entry_date: "entry",
+  exit_date: "exit",
+  filing_status: "filing",
+};
+/** Turns backend validation locations (e.g. "body.taxes.w2_wages") into readable UI labels. */
+export const fieldLabel = (language: Language, loc: string) => {
+  const name =
+    loc
+      .split(".")
+      .filter((p) => !/^\d+$/.test(p))
+      .pop() || loc;
+  const key = fieldAliases[name] ?? (isKey(name) ? name : null);
+  return key ? translate(language, key) : name.replaceAll("_", " ");
+};
 export const translate = (language: Language, key: Key) =>
   ({ en, ru: { ...en, ...ru }, es: { ...en, ...es } })[language][key];

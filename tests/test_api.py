@@ -65,6 +65,31 @@ def test_analyze_all_defaults_empty_exit_to_tax_year_end():
     assert current_year["total_physical_days"] == 365
 
 
+def test_analyze_all_treats_null_fields_as_defaults():
+    res = client.post(
+        "/api/analyze-all",
+        json={
+            "residency": {
+                "tax_year": 2025,
+                "stays": [{"visa_type": "OPT", "entry_date": "2023-08-15"}],
+                "country_of_citizenship": None,
+            },
+            "taxes": {
+                "tax_year": 2025,
+                "visa_type": "OPT",
+                "country_of_citizenship": None,
+                "gross_1099_income": 28000,
+                "business_deductions": 4500,
+                "w2_wages": None,
+                "w2_federal_withheld": None,
+                "w2_fica_withheld": None,
+            },
+        },
+    )
+    assert res.status_code == 200, res.text
+    assert res.json()["taxes"]["w2_federal_withheld"] == 0
+
+
 def test_analyze_all_rejects_invalid_stay_dates():
     for field in ("entry_date", "exit_date"):
         stay = {

@@ -5,6 +5,20 @@ import type { Key } from "@/lib/ara/i18n";
 
 export type Section = "new" | "chat" | "results" | "documents";
 export type Message = { role: "user" | "assistant"; content: string };
+export type CalculationSource = "form" | "chat" | "preset";
+export type CalculationEntry = {
+  id: string;
+  createdAt: number;
+  source: CalculationSource;
+  label: string;
+  /** analyze-all request body, already cleaned */
+  request: Record<string, any>;
+  response: Record<string, any>;
+  language: Language;
+  /** Form inputs snapshot, when the calculation came from the form */
+  inputs?: Inputs;
+};
+export const HISTORY_LIMIT = 20;
 export type State = {
   language: Language;
   setLanguage: (language: Language) => void;
@@ -15,8 +29,16 @@ export type State = {
   setPlan: (plan: "free" | "pro") => void;
   inputs: Inputs;
   setInputs: Dispatch<SetStateAction<Inputs>>;
+  history: CalculationEntry[];
+  activeId: string | null;
+  setActiveId: (id: string) => void;
+  /** Adds a successful analyze-all result to the top of the history and makes it active. */
+  addEntry: (entry: Omit<CalculationEntry, "id" | "createdAt">) => void;
+  updateEntry: (id: string, patch: Partial<CalculationEntry>) => void;
+  removeEntry: (id: string) => void;
+  /** The active entry's response (derived) */
+  active: CalculationEntry | null;
   result: Record<string, any> | null;
-  setResult: (result: Record<string, any>) => void;
   section: Section;
   setSection: (section: Section) => void;
   lock: boolean;

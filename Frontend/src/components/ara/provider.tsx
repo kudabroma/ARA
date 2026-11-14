@@ -1,13 +1,38 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useCallback, type ReactNode } from "react";
 import { initialInputs, type Inputs, type Language } from "@/lib/ara/api";
 import { translate } from "@/lib/ara/i18n";
-import { AraContext, type Section, type Message } from "./context";
+import {
+  AraContext,
+  HISTORY_LIMIT,
+  type CalculationEntry,
+  type Section,
+  type Message,
+} from "./context";
 export function AraProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>("en");
   const [year, setYear] = useState(2025);
   const [plan, setPlan] = useState<"free" | "pro">("pro");
   const [inputs, setInputs] = useState<Inputs>(initialInputs);
-  const [result, setResult] = useState<Record<string, any> | null>(null);
+  const [history, setHistory] = useState<CalculationEntry[]>([]);
+  const [activeId, setActiveId] = useState<string | null>(null);
+  const addEntry = useCallback((entry: Omit<CalculationEntry, "id" | "createdAt">) => {
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    setHistory((prev) =>
+      [{ ...entry, id, createdAt: Date.now() }, ...prev].slice(0, HISTORY_LIMIT),
+    );
+    setActiveId(id);
+  }, []);
+  const updateEntry = useCallback((id: string, patch: Partial<CalculationEntry>) => {
+    setHistory((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
+  }, []);
+  const removeEntry = useCallback((id: string) => {
+    setHistory((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      setActiveId((current) => (current === id ? (next[0]?.id ?? null) : current));
+      return next;
+    });
+  }, []);
+  const active = history.find((e) => e.id === activeId) ?? null;
   const [section, setSection] = useState<Section>("new");
   const [lock, setLock] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -40,8 +65,14 @@ export function AraProvider({ children }: { children: ReactNode }) {
         setPlan,
         inputs,
         setInputs,
-        result,
-        setResult,
+        history,
+        activeId,
+        setActiveId,
+        addEntry,
+        updateEntry,
+        removeEntry,
+        active,
+        result: active?.response ?? null,
         section,
         setSection,
         lock,

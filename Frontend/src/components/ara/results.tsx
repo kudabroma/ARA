@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import {
   ChartNoAxesCombined,
@@ -11,7 +11,8 @@ import {
 } from "lucide-react";
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
-import { useAra } from "./context";
+import { useAra, type CalculationEntry } from "./context";
+import { CompareTable, HistoryPanel, entryVisa, useEditEntry } from "./history";
 import { money, type Language } from "@/lib/ara/api";
 import type { Key } from "@/lib/ara/i18n";
 import { formGuidance } from "@/lib/ara/form-guidance";
@@ -70,24 +71,60 @@ function formatBackendDates(value: unknown, language: Language) {
 }
 export function Results() {
   const a = useAra();
-  if (!a.result)
-    return (
-      <>
+  const edit = useEditEntry();
+  const [selected, setSelected] = useState<string[]>([]);
+  const [comparing, setComparing] = useState(false);
+  // Free shows only the latest calculation; older ones are locked in the history column.
+  const shown = a.plan === "free" ? (a.history[0] ?? null) : a.active;
+  const existing = selected.filter((id) => a.history.some((e) => e.id === id));
+  const compared = a.history.filter((e) => existing.includes(e.id));
+  return (
+    <>
+      <div className="mb-8 flex justify-between items-center">
         <h1 className="page-heading">{a.t("results")}</h1>
-        <div className="empty-view">
-          <span className="empty-icon">
-            <ChartNoAxesCombined size={30} />
-          </span>
-          <h2>{a.t("empty")}</h2>
-          <p>{a.t("emptyHint")}</p>
-          <Button onClick={() => a.setSection("new")}>
-            {a.t("new")}
-            <ArrowRight />
+        {shown && (
+          <Button variant="outline" onClick={() => edit(shown)}>
+            {a.t("edit")}
           </Button>
+        )}
+      </div>
+      <div className="results-layout">
+        <HistoryPanel
+          selected={existing}
+          onToggleSelect={(id) =>
+            setSelected((prev) =>
+              prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id].slice(-2),
+            )
+          }
+          onCompare={() => setComparing(true)}
+        />
+        <div className="min-w-0">
+          {comparing && a.plan === "pro" && compared.length === 2 && (
+            <CompareTable entries={compared} onClose={() => setComparing(false)} />
+          )}
+          {shown ? (
+            <ResultDetail entry={shown} />
+          ) : (
+            <div className="empty-view">
+              <span className="empty-icon">
+                <ChartNoAxesCombined size={30} />
+              </span>
+              <h2>{a.t("empty")}</h2>
+              <p>{a.t("emptyHint")}</p>
+              <Button onClick={() => a.setSection("new")}>
+                {a.t("new")}
+                <ArrowRight />
+              </Button>
+            </div>
+          )}
         </div>
-      </>
-    );
-  const r = a.result,
+      </div>
+    </>
+  );
+}
+function ResultDetail({ entry }: { entry: CalculationEntry }) {
+  const a = useAra();
+  const r = entry.response,
     taxes = r["taxes"] || {},
     residency = r["residency"] || {};
   const breakdown = [
@@ -103,15 +140,13 @@ export function Results() {
   const yearRows = Array.isArray(residency.year_breakdown) ? residency.year_breakdown : [];
   const filingForms = Array.isArray(residency.filing_plan) ? residency.filing_plan : [];
   const quarterlyRows = Array.isArray(taxes.quarterly_schedule) ? taxes.quarterly_schedule : [];
-  const guidance = formGuidance(residency.residency_status, a.inputs.visa, Boolean(r["form_8843"]));
+  const guidance = formGuidance(
+    residency.residency_status,
+    entryVisa(entry),
+    Boolean(r["form_8843"]),
+  );
   return (
     <>
-      <div className="mb-8 flex justify-between items-center">
-        <h1 className="page-heading">{a.t("results")}</h1>
-        <Button variant="outline" onClick={() => a.setSection("new")}>
-          {a.t("edit")}
-        </Button>
-      </div>
       {guidance && (
         <>
           <section className="result-block pt-0" aria-label={a.t("yourForm")}>

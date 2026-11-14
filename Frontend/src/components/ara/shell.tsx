@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   ArrowUpRight,
@@ -16,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAra } from "./context";
-import { buildBody, request } from "@/lib/ara/api";
+import { analyzeAll } from "@/lib/ara/api";
 const nav = [
   { key: "new", icon: Plus },
   { key: "chat", icon: MessageSquare },
@@ -26,18 +26,21 @@ const nav = [
 export function AraShell({ children }: { children: ReactNode }) {
   const a = useAra();
   const path = useLocation().pathname;
-  const previousLanguage = useRef(a.language);
   const [languageRefreshFailed, setLanguageRefreshFailed] = useState(false);
+  const activeId = a.active?.id;
+  const activeLanguage = a.active?.language;
+  // Only the active entry is re-requested when its language differs from the UI language.
   useEffect(() => {
-    if (previousLanguage.current === a.language) return;
-    previousLanguage.current = a.language;
-    if (!a.result) return;
+    const entry = a.active;
+    if (!entry || entry.language === a.language) return;
 
     let active = true;
+    const language = a.language;
+    const request = { ...entry.request, language };
     setLanguageRefreshFailed(false);
-    request<Record<string, any>>("/api/analyze-all", buildBody(a.inputs, a.year, a.language))
-      .then((result) => {
-        if (active) a.setResult(result);
+    analyzeAll(request)
+      .then((response) => {
+        if (active) a.updateEntry(entry.id, { request, response, language });
       })
       .catch(() => {
         if (active) setLanguageRefreshFailed(true);
@@ -45,7 +48,8 @@ export function AraShell({ children }: { children: ReactNode }) {
     return () => {
       active = false;
     };
-  }, [a.language, a.result, a.inputs, a.year, a.setResult]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [a.language, activeId, activeLanguage, a.updateEntry]);
   return (
     <>
       <header className="ara-header">

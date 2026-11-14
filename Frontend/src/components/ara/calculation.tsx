@@ -24,7 +24,10 @@ import { useAra } from "./context";
 import {
   ApiError,
   request,
+  analyzeAll,
   buildBody,
+  calculationLabel,
+  cleanPayload,
   backendConfigured,
   presetInputs,
   type Inputs,
@@ -120,13 +123,20 @@ export function Calculation() {
   const items = Array.isArray(presets.data) ? presets.data : presets.data?.presets || [];
   const update = (patch: Partial<Inputs>) => a.setInputs((prev) => ({ ...prev, ...patch }));
   const invalid = (key: string) => error?.fields.some((f) => f.endsWith(key)) || false;
-  const run = async (body?: unknown) => {
+  const run = async (preset?: { body: Record<string, any>; title?: string; inputs: Inputs }) => {
     setError(null);
     setBusy(true);
     try {
-      a.setResult(
-        await request("/api/analyze-all", body || buildBody(a.inputs, a.year, a.language)),
-      );
+      const body = cleanPayload(preset?.body || buildBody(a.inputs, a.year, a.language));
+      const response = await analyzeAll(body);
+      a.addEntry({
+        source: preset ? "preset" : "form",
+        label: preset?.title || calculationLabel(body),
+        request: body,
+        response,
+        language: a.language,
+        inputs: preset?.inputs || a.inputs,
+      });
       a.setSection("results");
     } catch (e) {
       setError(e instanceof ApiError ? e : new ApiError("network_error"));
@@ -186,8 +196,13 @@ export function Calculation() {
                   disabled={busy}
                   key={preset.id || i}
                   onClick={() => {
-                    a.setInputs(presetInputs(preset.payload));
-                    run({ ...preset.payload, language: a.language });
+                    const inputs = presetInputs(preset.payload);
+                    a.setInputs(inputs);
+                    run({
+                      body: { ...preset.payload, language: a.language },
+                      title: preset.title,
+                      inputs,
+                    });
                   }}
                 >
                   <Sparkles size={16} />

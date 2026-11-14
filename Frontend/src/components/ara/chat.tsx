@@ -3,8 +3,18 @@ import ReactMarkdown from "react-markdown";
 import { ArrowUp, Check, Sparkles, LoaderCircle, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useAra } from "./context";
-import { ApiError, request, backendLanguage, canSendChat, money } from "@/lib/ara/api";
-import type { Key } from "@/lib/ara/i18n";
+import {
+  ApiError,
+  request,
+  analyzeAll,
+  backendLanguage,
+  calculationLabel,
+  canSendChat,
+  chatProfileBody,
+  money,
+  presetInputs,
+} from "@/lib/ara/api";
+import { fieldLabel, type Key } from "@/lib/ara/i18n";
 export function Chat() {
   const a = useAra();
   const liveTaxes = a.chatData["live_calculation"]?.["taxes"];
@@ -45,42 +55,34 @@ export function Chat() {
       setBusy(false);
     }
   };
+  const [fullFailed, setFullFailed] = useState(false);
+  const chatBody = () => chatProfileBody(a.chatData["collected_profile"] || {}, a.year, a.language);
+  const fillInForm = () => {
+    a.setInputs(presetInputs(chatBody()));
+    a.setSection("new");
+  };
   const full = async () => {
     setBusy(true);
     setError("");
+    setFullFailed(false);
     try {
-      const profile = a.chatData["collected_profile"] || {};
-      const body = profile.residency
-        ? { ...profile, language: backendLanguage(a.language) }
-        : {
-            language: backendLanguage(a.language),
-            residency: {
-              tax_year: a.year,
-              stays: profile.stays || [],
-              country_of_citizenship: profile.country_of_citizenship,
-              prior_exempt_calendar_years: profile.prior_exempt_calendar_years || [],
-              has_green_card: profile.has_green_card || false,
-            },
-            taxes: Object.fromEntries(
-              Object.entries({ tax_year: a.year, ...profile }).filter(
-                ([k]) =>
-                  ![
-                    "residency_status",
-                    "stays",
-                    "prior_exempt_calendar_years",
-                    "has_green_card",
-                  ].includes(k),
-              ),
-            ),
-          };
-      a.setResult(await request("/api/analyze-all", body));
+      const body = chatBody();
+      const response = await analyzeAll(body);
+      a.addEntry({
+        source: "chat",
+        label: calculationLabel(body),
+        request: body,
+        response,
+        language: a.language,
+      });
       a.setSection("results");
     } catch (e) {
-      setError(
-        e instanceof ApiError && e.message === "not_connected"
-          ? a.t("not_connected")
-          : a.t("network_error"),
-      );
+      setFullFailed(true);
+      if (e instanceof ApiError && e.message === "not_connected") setError(a.t("not_connected"));
+      else if (e instanceof ApiError && e.status === 422) {
+        const fields = [...new Set(e.fields.filter(Boolean).map((f) => fieldLabel(a.language, f)))];
+        setError(a.t("missingData").replace("{fields}", fields.join(", ") || "—"));
+      } else setError(a.t("network_error"));
     } finally {
       setBusy(false);
     }
@@ -139,10 +141,17 @@ export function Chat() {
               ))}
             </div>
             {a.chatData["is_complete"] && (
-              <Button disabled={busy} onClick={full}>
-                {a.t("fullResults")}
-                <ArrowRight />
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Button disabled={busy} onClick={full}>
+                  {a.t("fullResults")}
+                  <ArrowRight />
+                </Button>
+                {fullFailed && (
+                  <Button variant="outline" disabled={busy} onClick={fillInForm}>
+                    {a.t("fillInForm")}
+                  </Button>
+                )}
+              </div>
             )}
           </div>
           {!canSendChat(a.plan, a.sent) && (
