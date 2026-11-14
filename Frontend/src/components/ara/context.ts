@@ -3,6 +3,7 @@ import type { Dispatch, SetStateAction } from "react";
 import type { Inputs, Language } from "@/lib/ara/api";
 import type { Key } from "@/lib/ara/i18n";
 
+export type Theme = "light" | "dark";
 export type Section = "new" | "chat" | "results" | "documents";
 export type Message = { role: "user" | "assistant"; content: string };
 export type CalculationSource = "form" | "chat" | "preset";
@@ -29,6 +30,8 @@ export type State = {
   setYear: (year: number) => void;
   plan: "free" | "pro";
   setPlan: (plan: "free" | "pro") => void;
+  theme: Theme;
+  setTheme: (theme: Theme) => void;
   inputs: Inputs;
   setInputs: Dispatch<SetStateAction<Inputs>>;
   history: CalculationEntry[];

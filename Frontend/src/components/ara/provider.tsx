@@ -7,7 +7,21 @@ import {
   type CalculationEntry,
   type Section,
   type Message,
+  type Theme,
 } from "./context";
+
+const THEME_KEY = "ara-theme";
+/** Switch the <html> theme class; colours cross-fade for 200 ms unless reduced motion is on. */
+function applyTheme(next: Theme, setState: (t: Theme) => void) {
+  const root = document.documentElement;
+  const animate = !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+  if (animate) root.classList.add("theme-switching");
+  root.classList.toggle("dark", next === "dark");
+  root.style.colorScheme = next;
+  setState(next);
+  if (animate) window.setTimeout(() => root.classList.remove("theme-switching"), 250);
+}
+
 export function AraProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>("en");
   const [year, setYear] = useState(2025);
@@ -41,6 +55,10 @@ export function AraProvider({ children }: { children: ReactNode }) {
   }, []);
   const clearPendingForm8843 = useCallback(() => setPendingForm8843(false), []);
   const [lock, setLock] = useState(false);
+  // Pro never shows the "Pro feature" dialog, even if it was open when the plan switched.
+  useEffect(() => {
+    if (plan === "pro") setLock(false);
+  }, [plan]);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatData, setChatData] = useState<Record<string, any>>({});
   const [sent, setSent] = useState(0);
@@ -52,6 +70,33 @@ export function AraProvider({ children }: { children: ReactNode }) {
       const l = localStorage.getItem("ara-language");
       if (l === "en" || l === "ru" || l === "es") setLanguageState(l);
     } catch {}
+  }, []);
+  // Theme: <html class="dark"> is already set before paint by the script in __root.tsx.
+  const [theme, setThemeState] = useState<Theme>("light");
+  useEffect(() => {
+    const root = document.documentElement;
+    setThemeState(root.classList.contains("dark") ? "dark" : "light");
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(THEME_KEY);
+    } catch {
+      // storage blocked (private mode): fall back to the system theme
+    }
+    if (saved === "light" || saved === "dark") return;
+    // No manual choice yet: follow the system setting live.
+    const media = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!media) return;
+    const onChange = () => applyTheme(media.matches ? "dark" : "light", setThemeState);
+    media.addEventListener?.("change", onChange);
+    return () => media.removeEventListener?.("change", onChange);
+  }, []);
+  const setTheme = useCallback((next: Theme) => {
+    applyTheme(next, setThemeState);
+    try {
+      localStorage.setItem(THEME_KEY, next);
+    } catch {
+      // storage blocked (private mode): fall back to the system theme
+    }
   }, []);
   const setLanguage = (l: Language) => {
     setLanguageState(l);
@@ -69,6 +114,8 @@ export function AraProvider({ children }: { children: ReactNode }) {
         setYear,
         plan,
         setPlan,
+        theme,
+        setTheme,
         inputs,
         setInputs,
         history,

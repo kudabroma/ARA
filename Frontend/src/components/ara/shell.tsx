@@ -12,6 +12,8 @@ import {
   ChevronDown,
   Sprout,
   CreditCard,
+  Moon,
+  Sun,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -88,6 +90,15 @@ export function AraShell({ children }: { children: ReactNode }) {
             <option value="ru">RU</option>
             <option value="es">ES</option>
           </select>
+          <button
+            type="button"
+            className="theme-toggle"
+            onClick={() => a.setTheme(a.theme === "dark" ? "light" : "dark")}
+            aria-label={a.t(a.theme === "dark" ? "themeToLight" : "themeToDark")}
+            title={a.t(a.theme === "dark" ? "themeToLight" : "themeToDark")}
+          >
+            {a.theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+          </button>
           <div
             className="glass flex items-center gap-1 rounded-full px-2 py-1"
             role="group"

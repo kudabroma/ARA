@@ -585,24 +585,27 @@ export function Calculation() {
               <ArrowRight size={13} />
             </Button>
           </div>
-          <div className="rail-pro">
-            <Sparkles size={21} className="text-accent-foreground" />
-            <h3>{a.t("lockedHint")}</h3>
-            <p>
-              {a.t("pro2")}
-              <br />
-              {a.t("pro3")}
-              <br />
-              {a.t("pro4")}
-            </p>
-            <Button asChild variant="outline" className="mt-5 w-full text-xs">
-              <Link to="/pricing">
-                {a.t("upgrade")}
-                <ArrowUpRight />
-              </Link>
-            </Button>
-            <p className="mt-3 text-center text-[10px]">$12{a.t("month")}</p>
-          </div>
+          {/* Upsell only on Free; on Pro the residency card above fills the rail on its own. */}
+          {a.plan === "free" && (
+            <div className="rail-pro">
+              <Sparkles size={21} className="text-accent-foreground" />
+              <h3>{a.t("lockedHint")}</h3>
+              <p>
+                {a.t("pro2")}
+                <br />
+                {a.t("pro3")}
+                <br />
+                {a.t("pro4")}
+              </p>
+              <Button asChild variant="outline" className="mt-5 w-full text-xs">
+                <Link to="/pricing">
+                  {a.t("upgrade")}
+                  <ArrowUpRight />
+                </Link>
+              </Button>
+              <p className="mt-3 text-center text-[10px]">$12{a.t("month")}</p>
+            </div>
+          )}
         </aside>
       </div>
     </>
