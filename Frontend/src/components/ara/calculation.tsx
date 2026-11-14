@@ -187,7 +187,7 @@ export function Calculation() {
                   key={preset.id || i}
                   onClick={() => {
                     a.setInputs(presetInputs(preset.payload));
-                    run({ ...preset.payload, language: a.language === "ru" ? "ru" : "en" });
+                    run({ ...preset.payload, language: a.language });
                   }}
                 >
                   <Sparkles size={16} />

@@ -9,6 +9,7 @@ from app.schemas import (
     TransactionsAnalyzeRequest,
     TransactionsAnalyzeResponse,
 )
+from app.i18n import translate_source_text
 
 RULES: List[Tuple[str, str, Optional[str], float, str]] = [
     (
@@ -143,7 +144,7 @@ def analyze_transactions(req: TransactionsAnalyzeRequest) -> TransactionsAnalyze
         elif cls_name == "BUSINESS_DEDUCTION":
             exp_raw += amt
             ded_total += ded_amt
-            key = cat_name or "Other Business Expenses"
+            key = translate_source_text(req.language, cat_name or "Other Business Expenses")
             by_category[key] = round(by_category.get(key, 0.0) + ded_amt, 2)
         else:
             pers_total += amt
@@ -155,11 +156,13 @@ def analyze_transactions(req: TransactionsAnalyzeRequest) -> TransactionsAnalyze
                 description=tx.description,
                 amount=amt,
                 classification=cls_name,
-                schedule_c_category=cat_name,
+                schedule_c_category=(
+                    translate_source_text(req.language, cat_name) if cat_name else None
+                ),
                 deductible_percentage=pct,
                 deductible_amount=ded_amt,
                 estimated_tax_saved=saved,
-                reason=reason,
+                reason=translate_source_text(req.language, reason),
             )
         )
 

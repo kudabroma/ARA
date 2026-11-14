@@ -2,6 +2,7 @@ from datetime import date, datetime
 from typing import Dict, List, Tuple
 
 from app.config import SCHOLAR_VISAS, STUDENT_VISAS, TAX_YEARS
+from app.i18n import tr
 from app.schemas import FilingFormItem, ResidencyRequest, ResidencyResponse, YearDayBreakdown
 
 VISA_ALIASES = {
@@ -106,25 +107,39 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
                 if prior_total < 5:
                     ex_days += 1
                     used_exempt = True
-                    notes.add(f"Student ({v_type}) exempt: year {prior_total + 1} of 5 lifetime calendar years")
+                    notes.add(
+                        tr(
+                            req.language,
+                            "student_exempt",
+                            visa=v_type,
+                            year=prior_total + 1,
+                        )
+                    )
                 else:
                     cnt_days += 1
-                    notes.add(f"Student ({v_type}) exceeded 5-year limit; days count toward SPT")
+                    notes.add(tr(req.language, "student_exceeded", visa=v_type))
             elif v_type in SCHOLAR_VISAS:
                 if yr == target_year:
                     cur_has_exempt_visa = True
                 if prior_six_yr < 2:
                     ex_days += 1
                     used_exempt = True
-                    notes.add(f"Scholar ({v_type}) exempt: year {prior_six_yr + 1} of 2 in preceding 6 years")
+                    notes.add(
+                        tr(
+                            req.language,
+                            "scholar_exempt",
+                            visa=v_type,
+                            year=prior_six_yr + 1,
+                        )
+                    )
                 else:
                     cnt_days += 1
-                    notes.add(f"Scholar ({v_type}) exceeded 2-of-6-year limit; days count toward SPT")
+                    notes.add(tr(req.language, "scholar_exceeded", visa=v_type))
             else:
                 if yr == target_year and v_type in {"H-1B", "L-1", "O-1", "TN", "GREEN_CARD"}:
                     cur_has_work_visa = True
                 cnt_days += 1
-                notes.add(f"Days on {v_type} count 100% toward physical presence")
+                notes.add(tr(req.language, "visa_days_count", visa=v_type))
 
         if used_exempt or any(v in STUDENT_VISAS or v in SCHOLAR_VISAS for v in day_map.values()):
             running_exempt.add(yr)
@@ -142,7 +157,7 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
                 countable_days=cnt_days,
                 weight=round(weight, 4),
                 weighted_countable_days=round(cnt_days * weight, 2),
-                exempt_reason="; ".join(sorted(notes)) if notes else "No US presence recorded",
+                exempt_reason="; ".join(sorted(notes)) if notes else tr(req.language, "no_us_presence"),
             )
         )
 
@@ -160,13 +175,13 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         if cur_exempt_days > 0 and cur_countable_days > 0:
             dual_status = True
             res_status = "DUAL_STATUS_ALIEN"
-            label = f"Dual-Status Alien ({target_year})"
+            label = tr(req.language, "dual_status", year=target_year)
         else:
             res_status = "RESIDENT_ALIEN"
-            label = f"Resident Alien for Tax Purposes ({target_year})"
+            label = tr(req.language, "resident_status", year=target_year)
     else:
         res_status = "NONRESIDENT_ALIEN"
-        label = f"Nonresident Alien for Tax Purposes ({target_year})"
+        label = tr(req.language, "nonresident_status", year=target_year)
         if cur_has_work_visa and cur_countable_days >= 31:
             first_year_choice = True
 
@@ -185,10 +200,15 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         plan.append(
             FilingFormItem(
                 form_code="Form 8843",
-                title="Statement for Exempt Individuals",
+                title=tr(req.language, "filing_8843_title"),
                 mandatory=True,
-                deadline=f"{cfg['annual_deadline']} (or {cfg['form_8843_deadline']} if standalone)",
-                reason=f"Required to exclude {cur_exempt_days} exempt days on F/J/M status, even with $0 income.",
+                deadline=tr(
+                    req.language,
+                    "standalone_deadline",
+                    annual=cfg["annual_deadline"],
+                    standalone=cfg["form_8843_deadline"],
+                ),
+                reason=tr(req.language, "filing_8843_reason", days=cur_exempt_days),
                 official_url="https://www.irs.gov/forms-pubs/about-form-8843",
             )
         )
@@ -197,10 +217,10 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         plan.append(
             FilingFormItem(
                 form_code="Form 1040-NR",
-                title="U.S. Nonresident Alien Income Tax Return",
+                title=tr(req.language, "filing_1040nr_title"),
                 mandatory=True,
                 deadline=cfg["annual_deadline"],
-                reason="Required for Nonresident Aliens with U.S.-source income.",
+                reason=tr(req.language, "filing_1040nr_reason"),
                 official_url="https://www.irs.gov/forms-pubs/about-form-1040-nr",
             )
         )
@@ -208,10 +228,16 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
             plan.append(
                 FilingFormItem(
                     form_code="First-Year Choice (Pub 519)",
-                    title="Optional Dual-Status Election for Work Visa Transition",
+                    title=tr(req.language, "filing_first_year_title"),
                     mandatory=False,
                     deadline=cfg["annual_deadline"],
-                    reason=f"With {cur_countable_days} countable days in {target_year}, you file 1040-NR by default or may elect First-Year Choice after meeting SPT in {target_year + 1}.",
+                    reason=tr(
+                        req.language,
+                        "filing_first_year_reason",
+                        days=cur_countable_days,
+                        year=target_year,
+                        next_year=target_year + 1,
+                    ),
                     official_url="https://www.irs.gov/publications/p519",
                 )
             )
@@ -219,10 +245,10 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         plan.append(
             FilingFormItem(
                 form_code="Form 1040 + 1040-NR Statement",
-                title="Dual-Status Tax Return",
+                title=tr(req.language, "filing_dual_title"),
                 mandatory=True,
                 deadline=cfg["annual_deadline"],
-                reason="Required when transitioning between Nonresident and Resident status mid-year.",
+                reason=tr(req.language, "filing_dual_reason"),
                 official_url="https://www.irs.gov/individuals/international-taxpayers/taxation-of-dual-status-individuals",
             )
         )
@@ -230,20 +256,20 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         plan.append(
             FilingFormItem(
                 form_code="Form 1040",
-                title="U.S. Individual Income Tax Return",
+                title=tr(req.language, "filing_1040_title"),
                 mandatory=True,
                 deadline=cfg["annual_deadline"],
-                reason="Taxed as a U.S. Resident on worldwide income.",
+                reason=tr(req.language, "filing_1040_reason"),
                 official_url="https://www.irs.gov/forms-pubs/about-form-1040",
             )
         )
         plan.append(
             FilingFormItem(
                 form_code="FinCEN Form 114 (FBAR)",
-                title="Foreign Bank Account Report (if foreign accounts > $10,000)",
+                title=tr(req.language, "filing_fbar_title"),
                 mandatory=False,
-                deadline=f"{cfg['annual_deadline']} (auto-extended to Oct 15)",
-                reason="Applies to Resident Aliens with aggregate foreign account balances exceeding $10,000.",
+                deadline=tr(req.language, "fbar_deadline", annual=cfg["annual_deadline"]),
+                reason=tr(req.language, "filing_fbar_reason"),
                 official_url="https://www.irs.gov/businesses/small-businesses-self-employed/report-of-foreign-bank-and-financial-accounts-fbar",
             )
         )
@@ -252,32 +278,36 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         plan.append(
             FilingFormItem(
                 form_code="Form 8840",
-                title="Closer Connection Exception Statement",
+                title=tr(req.language, "filing_8840_title"),
                 mandatory=True,
                 deadline=cfg["annual_deadline"],
-                reason="Claims Closer Connection exception when weighted days >= 183 but current-year days < 183.",
+                reason=tr(req.language, "filing_8840_reason"),
                 official_url="https://www.irs.gov/forms-pubs/about-form-8840",
             )
         )
 
     if res_status == "NONRESIDENT_ALIEN":
         warnings = [
-            "Do not use standard Form 1040 software (TurboTax, FreeTaxUSA) — they do not support Form 1040-NR directly.",
-            "Nonresident Aliens cannot claim the federal Standard Deduction unless eligible under US-India Tax Treaty Art. 21(2).",
+            tr(req.language, "warning_nonresident_software"),
+            tr(req.language, "warning_nonresident_deduction"),
         ]
     elif res_status == "DUAL_STATUS_ALIEN":
         warnings = [
-            "Dual-status returns require a combined Form 1040 / 1040-NR statement and disallow the standard deduction unless married filing jointly with a US resident.",
+            tr(req.language, "warning_dual_status"),
         ]
     else:
         warnings = [
-            f"Resident Aliens qualify for the Standard Deduction (${cfg['standard_deduction']['single']:,.0f} Single) and report worldwide income.",
+            tr(
+                req.language,
+                "warning_resident_deduction",
+                amount=cfg["standard_deduction"]["single"],
+            ),
         ]
 
     citations = [
-        {"title": "IRS Publication 519 — Substantial Presence Test", "url": "https://www.irs.gov/individuals/international-taxpayers/substantial-presence-test"},
-        {"title": "IRS Form 8843 Instructions", "url": "https://www.irs.gov/forms-pubs/about-form-8843"},
-        {"title": "Foreign Student FICA Tax Exemption (IRC §3121(b)(19))", "url": "https://www.irs.gov/individuals/international-taxpayers/foreign-student-liability-for-social-security-and-medicare-taxes"},
+        {"title": tr(req.language, "citation_spt"), "url": "https://www.irs.gov/individuals/international-taxpayers/substantial-presence-test"},
+        {"title": tr(req.language, "citation_form_8843"), "url": "https://www.irs.gov/forms-pubs/about-form-8843"},
+        {"title": tr(req.language, "citation_fica"), "url": "https://www.irs.gov/individuals/international-taxpayers/foreign-student-liability-for-social-security-and-medicare-taxes"},
     ]
 
     return ResidencyResponse(

@@ -91,6 +91,75 @@ def test_chat_maps_invalid_profile_date_to_bad_request():
     assert res.status_code == 400
 
 
+def test_language_changes_text_without_changing_numeric_results(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.advisor.call_llm",
+        lambda prompt, language="en": (None, "deterministic-irs-explainer"),
+    )
+    payload = client.get("/api/demo-presets").json()["presets"][0]["payload"]
+
+    def numeric_values(value):
+        if isinstance(value, bool):
+            return []
+        if isinstance(value, (int, float)):
+            return [value]
+        if isinstance(value, dict):
+            return [number for item in value.values() for number in numeric_values(item)]
+        if isinstance(value, list):
+            return [number for item in value for number in numeric_values(item)]
+        return []
+
+    results = {}
+    for language in ("en", "ru", "es"):
+        response = client.post(
+            "/api/analyze-all",
+            json={**payload, "language": language},
+        )
+        assert response.status_code == 200
+        results[language] = response.json()
+
+    assert results["en"]["residency"]["status_label"] != results["ru"]["residency"]["status_label"]
+    assert results["ru"]["residency"]["status_label"] != results["es"]["residency"]["status_label"]
+    numbers = {language: numeric_values(result) for language, result in results.items()}
+    assert numbers["en"] == numbers["ru"] == numbers["es"]
+
+
+def test_chat_fallback_uses_latest_message_language(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.advisor.call_llm",
+        lambda prompt, language="en": (None, "deterministic-irs-explainer"),
+    )
+    spanish = client.post(
+        "/api/chat",
+        json={"language": "en", "messages": [{"role": "user", "content": "Hola, necesito ayuda"}]},
+    ).json()
+    russian = client.post(
+        "/api/chat",
+        json={"language": "es", "messages": [{"role": "user", "content": "Здравствуйте, нужна помощь"}]},
+    ).json()
+
+    assert "¿Qué visa" in spanish["reply"]
+    assert "Estudiante" in spanish["suggested_replies"][0]
+    assert "По какой визе" in russian["reply"]
+    assert "Студенческая" in russian["suggested_replies"][0]
+
+
+def test_explanation_fallback_localizes_to_question_language(monkeypatch):
+    monkeypatch.setattr(
+        "app.services.advisor.call_llm",
+        lambda prompt, language="en": (None, "deterministic-irs-explainer"),
+    )
+    response = client.post(
+        "/api/explain",
+        json={"language": "en", "user_question": "Hola, ¿puedes explicarlo?"},
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert data["language"] == "es"
+    assert "Residencia fiscal" in data["explanation_markdown"]
+    assert "Cálculo informativo" in data["disclaimer"]
+
+
 if __name__ == "__main__":
     test_health_and_presets()
     test_analyze_all_and_pdf()

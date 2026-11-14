@@ -1,3 +1,4 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   ArrowUpRight,
@@ -15,7 +16,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { useAra } from "./context";
-import type { ReactNode } from "react";
+import { buildBody, request } from "@/lib/ara/api";
 const nav = [
   { key: "new", icon: Plus },
   { key: "chat", icon: MessageSquare },
@@ -25,6 +26,26 @@ const nav = [
 export function AraShell({ children }: { children: ReactNode }) {
   const a = useAra();
   const path = useLocation().pathname;
+  const previousLanguage = useRef(a.language);
+  const [languageRefreshFailed, setLanguageRefreshFailed] = useState(false);
+  useEffect(() => {
+    if (previousLanguage.current === a.language) return;
+    previousLanguage.current = a.language;
+    if (!a.result) return;
+
+    let active = true;
+    setLanguageRefreshFailed(false);
+    request<Record<string, any>>("/api/analyze-all", buildBody(a.inputs, a.year, a.language))
+      .then((result) => {
+        if (active) a.setResult(result);
+      })
+      .catch(() => {
+        if (active) setLanguageRefreshFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [a.language, a.result, a.inputs, a.year, a.setResult]);
   return (
     <>
       <header className="ara-header">
@@ -140,6 +161,11 @@ export function AraShell({ children }: { children: ReactNode }) {
           </div>
         </aside>
         <main className="ara-main">
+          {languageRefreshFailed && (
+            <div role="alert" className="notice mb-4">
+              {a.t("languageRefreshFailed")}
+            </div>
+          )}
           {children}
           <footer className="ara-footer">
             <ShieldCheck size={12} className="shrink-0" />

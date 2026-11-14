@@ -12,7 +12,7 @@ import {
 import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAra } from "./context";
-import { money } from "@/lib/ara/api";
+import { money, type Language } from "@/lib/ara/api";
 import type { Key } from "@/lib/ara/i18n";
 import { formGuidance } from "@/lib/ara/form-guidance";
 export function Locked({ children }: { children: ReactNode }) {
@@ -34,6 +34,7 @@ export function Locked({ children }: { children: ReactNode }) {
   );
 }
 function Readable({ value }: { value: unknown }) {
+  const a = useAra();
   if (value === undefined || value === null) return null;
   if (typeof value === "string")
     return (
@@ -41,7 +42,8 @@ function Readable({ value }: { value: unknown }) {
         <ReactMarkdown>{value}</ReactMarkdown>
       </div>
     );
-  if (typeof value === "number" || typeof value === "boolean") return <span>{String(value)}</span>;
+  if (typeof value === "number") return <span>{value}</span>;
+  if (typeof value === "boolean") return <span>{a.t(value ? "yes" : "no")}</span>;
   if (Array.isArray(value))
     return (
       <div className="space-y-4">
@@ -50,22 +52,21 @@ function Readable({ value }: { value: unknown }) {
         ))}
       </div>
     );
-  if (typeof value === "object")
-    return (
-      <dl className="space-y-3">
-        {Object.entries(value).map(([k, v]) => (
-          <div key={k} className="border-b border-border pb-3">
-            <dt className="mb-1 text-xs font-medium text-muted-foreground">
-              {k.replaceAll("_", " ")}
-            </dt>
-            <dd>
-              <Readable value={v} />
-            </dd>
-          </div>
-        ))}
-      </dl>
-    );
   return null;
+}
+function formatBackendDates(value: unknown, language: Language) {
+  if (typeof value !== "string") return "—";
+  return value.replace(/\b\d{4}-\d{2}-\d{2}\b/g, (iso) => {
+    const [year, month, day] = iso.split("-").map(Number);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== iso) return iso;
+    return new Intl.DateTimeFormat(language, {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    }).format(date);
+  });
 }
 export function Results() {
   const a = useAra();
@@ -98,16 +99,10 @@ export function Results() {
     "self_employment_tax",
   ] as const;
   const tx = r["transactions"]?.transactions || [];
-  const txTotals = r["transactions"]
-    ? {
-        total_income_1099: r["transactions"].total_income_1099,
-        total_business_expenses_raw: r["transactions"].total_business_expenses_raw,
-        total_deductible_expenses: r["transactions"].total_deductible_expenses,
-        total_personal_expenses: r["transactions"].total_personal_expenses,
-        estimated_total_tax_savings: r["transactions"].estimated_total_tax_savings,
-        category_summary: r["transactions"].category_summary,
-      }
-    : null;
+  const transactionData = r["transactions"];
+  const yearRows = Array.isArray(residency.year_breakdown) ? residency.year_breakdown : [];
+  const filingForms = Array.isArray(residency.filing_plan) ? residency.filing_plan : [];
+  const quarterlyRows = Array.isArray(taxes.quarterly_schedule) ? taxes.quarterly_schedule : [];
   const guidance = formGuidance(residency.residency_status, a.inputs.visa, Boolean(r["form_8843"]));
   return (
     <>
@@ -214,9 +209,79 @@ export function Results() {
       <section className="result-block">
         <h2>{a.t("dayCounts")}</h2>
         <Locked>
-          <Readable value={residency.year_breakdown || a.t("noData")} />
+          {yearRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    {[
+                      "yearHeader",
+                      "daysInUs",
+                      "exemptDays",
+                      "countableDays",
+                      "multiplier",
+                      "weightedCountableDays",
+                    ].map((key) => (
+                      <th key={key}>{a.t(key as Key)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {yearRows.map((row: any) => (
+                    <tr key={row.year}>
+                      <td>{row.year}</td>
+                      <td>{row.total_physical_days}</td>
+                      <td>{row.exempt_days}</td>
+                      <td>{row.countable_days}</td>
+                      <td>{row.weight}</td>
+                      <td>{row.weighted_countable_days}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {yearRows.map((row: any) =>
+                row.exempt_reason ? (
+                  <p key={`${row.year}-reason`} className="mt-2 text-xs text-muted-foreground">
+                    <strong>{row.year} · {a.t("exemptReason")}:</strong> {row.exempt_reason}
+                  </p>
+                ) : null,
+              )}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{a.t("noData")}</p>
+          )}
           <h3 className="my-4 font-medium">{a.t("learnMore")}</h3>
-          <Readable value={residency.filing_plan || a.t("noData")} />
+          {filingForms.length ? (
+            <div className="grid gap-3">
+              {filingForms.map((form: any, i: number) => (
+                <article className="rounded-xl border border-border p-4" key={`${form.form_code}-${i}`}>
+                  <div className="mb-2 flex flex-wrap items-center gap-2">
+                    <strong>{form.form_code}</strong>
+                    <span className="status-pill">
+                      {a.t(form.mandatory ? "required" : "optional")}
+                    </span>
+                  </div>
+                  <h4 className="font-medium">{form.title}</h4>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    <strong>{a.t("deadline")}:</strong>{" "}
+                    {formatBackendDates(form.deadline, a.language)}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-muted-foreground">{form.reason}</p>
+                  {typeof form.official_url === "string" &&
+                    form.official_url.startsWith("https://") && (
+                      <Button asChild variant="outline" size="sm" className="mt-3">
+                        <a href={form.official_url} target="_blank" rel="noopener noreferrer">
+                          {a.t("openIRS")}
+                          <ExternalLink />
+                        </a>
+                      </Button>
+                    )}
+                </article>
+              ))}
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{a.t("noData")}</p>
+          )}
         </Locked>
       </section>
       <section className="result-block">
@@ -234,7 +299,7 @@ export function Results() {
               <tbody>
                 {tx.map((t: any, i: number) => (
                   <tr key={i}>
-                    <td>{t.date}</td>
+                    <td>{formatBackendDates(t.date, a.language)}</td>
                     <td>{t.description}</td>
                     <td>{money(t.amount)}</td>
                     <td>
@@ -246,7 +311,40 @@ export function Results() {
               </tbody>
             </table>
           </div>
-          <Readable value={txTotals || a.t("noData")} />
+          {transactionData ? (
+            <>
+              <dl className="stat-grid mt-4">
+                {[
+                  ["total_income_1099", "totalIncome1099"],
+                  ["total_business_expenses_raw", "businessExpensesRaw"],
+                  ["total_deductible_expenses", "deductibleExpenses"],
+                  ["total_personal_expenses", "personalExpenses"],
+                  ["estimated_total_tax_savings", "estimatedSavings"],
+                ].map(([field, label]) => (
+                  <div className="stat" key={field}>
+                    <dt>{a.t(label as Key)}</dt>
+                    <dd>{money(transactionData[field])}</dd>
+                  </div>
+                ))}
+              </dl>
+              {transactionData.category_summary &&
+                Object.entries(transactionData.category_summary).length > 0 && (
+                  <div className="mt-4">
+                    <h3 className="mb-2 font-medium">{a.t("categorySummary")}</h3>
+                    <ul className="space-y-2 text-sm">
+                      {Object.entries(transactionData.category_summary).map(([category, total]) => (
+                        <li className="flex justify-between gap-4" key={category}>
+                          <span>{category}</span>
+                          <strong>{money(total)}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+            </>
+          ) : (
+            <p className="mt-4 text-sm text-muted-foreground">{a.t("noData")}</p>
+          )}
         </Locked>
       </section>
       <section className="result-block">
@@ -259,7 +357,31 @@ export function Results() {
       <section className="result-block">
         <h2>{a.t("quarterly")}</h2>
         <Locked>
-          <Readable value={taxes.quarterly_schedule || a.t("noData")} />
+          {quarterlyRows.length ? (
+            <div className="overflow-x-auto">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    {["quarter", "period", "deadline", "amountDue"].map((key) => (
+                      <th key={key}>{a.t(key as Key)}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {quarterlyRows.map((row: any) => (
+                    <tr key={row.quarter}>
+                      <td>{row.quarter}</td>
+                      <td>{row.period}</td>
+                      <td>{formatBackendDates(row.due_date, a.language)}</td>
+                      <td>{money(row.amount_due)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">{a.t("noData")}</p>
+          )}
           {typeof taxes.irs_direct_pay_url === "string" &&
             taxes.irs_direct_pay_url.startsWith("https://") && (
               <Button asChild variant="outline" className="mt-4">

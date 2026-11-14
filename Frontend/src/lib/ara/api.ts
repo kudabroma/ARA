@@ -1,7 +1,7 @@
 export const BASE_URL = (import.meta.env.VITE_API_URL ?? "").replace(/\/$/, "");
 export const backendConfigured = () => BASE_URL.length > 0;
 export type Language = "en" | "ru" | "es";
-export const backendLanguage = (language: Language) => (language === "ru" ? "ru" : "en");
+export const backendLanguage = (language: Language) => language;
 export const canSendChat = (plan: "free" | "pro", sent: number) => plan === "pro" || sent < 5;
 export class ApiError extends Error {
   constructor(

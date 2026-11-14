@@ -1,7 +1,9 @@
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Literal, Optional
 from datetime import date
 
 from pydantic import BaseModel, Field, validator
+
+Language = Literal["en", "ru", "es"]
 
 
 def dump_model(model: BaseModel) -> Dict[str, Any]:
@@ -35,6 +37,7 @@ class VisaStay(BaseModel):
 
 
 class ResidencyRequest(BaseModel):
+    language: Language = "en"
     tax_year: int = 2025
     stays: List[VisaStay] = Field(default_factory=list)
     prior_exempt_calendar_years: List[int] = Field(default_factory=list)
@@ -105,6 +108,7 @@ class CategorizedTransaction(BaseModel):
 
 
 class TransactionsAnalyzeRequest(BaseModel):
+    language: Language = "en"
     tax_year: int = 2025
     marginal_tax_rate_estimate: float = 0.273
     transactions: List[TransactionInput] = Field(default_factory=list)
@@ -123,6 +127,7 @@ class TransactionsAnalyzeResponse(BaseModel):
 
 
 class TaxCalculationRequest(BaseModel):
+    language: Language = "en"
     tax_year: int = 2025
     filing_status: str = "single"
     residency_status: str = "RESIDENT_ALIEN"
@@ -206,7 +211,7 @@ class Form8843Request(BaseModel):
 
 
 class ExplainRequest(BaseModel):
-    language: str = "ru"
+    language: Language = "en"
     residency_result: Optional[Dict[str, Any]] = None
     tax_result: Optional[Dict[str, Any]] = None
     user_question: Optional[str] = None
@@ -217,7 +222,7 @@ class UnifiedAnalyzeRequest(BaseModel):
     taxes: Optional[TaxCalculationRequest] = None
     transactions: Optional[TransactionsAnalyzeRequest] = None
     form_8843_profile: Optional[Form8843Request] = None
-    language: str = "ru"
+    language: Language = "en"
 
 
 class ChatMessage(BaseModel):
@@ -240,4 +245,4 @@ class CollectedTaxProfile(BaseModel):
 class ChatAgentRequest(BaseModel):
     messages: List[ChatMessage] = Field(default_factory=list)
     collected_profile: Optional[CollectedTaxProfile] = None
-    language: str = "ru"
+    language: Language = "en"

@@ -15,9 +15,10 @@ describe("ARA product rules", () => {
   it("allows unlimited Pro messages", () => {
     expect(canSendChat("pro", 500)).toBe(true);
   });
-  it("maps Spanish to backend English and Russian to Russian", () => {
-    expect(backendLanguage("es")).toBe("en");
+  it("sends the selected language to the backend", () => {
+    expect(backendLanguage("es")).toBe("es");
     expect(backendLanguage("ru")).toBe("ru");
+    expect(backendLanguage("en")).toBe("en");
   });
   it("omits empty optional blocks", () => {
     const b = buildBody(initialInputs, 2025, "en");

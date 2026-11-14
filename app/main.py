@@ -143,9 +143,11 @@ def analyze_all_endpoint(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
 
 
 def _analyze_all(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
-    res_out = calculate_residency(req.residency)
+    res_out = calculate_residency(copy_model(req.residency, {"language": req.language}))
     tx_out: Optional[TransactionsAnalyzeResponse] = (
-        analyze_transactions(req.transactions) if req.transactions else None
+        analyze_transactions(copy_model(req.transactions, {"language": req.language}))
+        if req.transactions
+        else None
     )
 
     tax_out: Optional[TaxCalculationResponse] = None
@@ -164,6 +166,7 @@ def _analyze_all(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
                 "residency_status": res_out.residency_status,
                 "gross_1099_income": inc_1099,
                 "business_deductions": ded,
+                "language": req.language,
             },
         )
         tax_out = calculate_taxes(synced)

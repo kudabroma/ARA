@@ -1,6 +1,7 @@
 from typing import List, Tuple
 
 from app.config import SCHOLAR_VISAS, STUDENT_VISAS, TAX_YEARS
+from app.i18n import localized_period, tr
 from app.schemas import (
     BracketBreakdownItem,
     QuarterlyPaymentItem,
@@ -73,13 +74,13 @@ def calculate_taxes(req: TaxCalculationRequest) -> TaxCalculationResponse:
     india_student = req.country_of_citizenship.strip().lower() == "india" and v_type in STUDENT_VISAS
     if res_status == "RESIDENT_ALIEN":
         std_ded = cfg["standard_deduction"][status]
-        note = f"Resident Alien (Form 1040): {year} Standard Deduction (${std_ded:,.0f}) applied."
+        note = tr(req.language, "resident_filing_note", year=year, amount=std_ded)
     elif res_status == "NONRESIDENT_ALIEN" and india_student:
         std_ded = cfg["standard_deduction"]["single"]
-        note = f"Nonresident Alien (Form 1040-NR): Standard deduction (${std_ded:,.0f}) applied via US-India Tax Treaty Art. 21(2)."
+        note = tr(req.language, "india_filing_note", amount=std_ded)
     else:
         std_ded = 0.0
-        note = "Nonresident / Dual-Status (Form 1040-NR): Standard deduction ($0) per IRC §63(c)(6)(B)."
+        note = tr(req.language, "nonresident_filing_note")
 
     pre_qbi = max(0.0, agi - std_ded)
     qbi_eligible = max(0.0, net_se - se_half)
@@ -104,9 +105,11 @@ def calculate_taxes(req: TaxCalculationRequest) -> TaxCalculationResponse:
     fica_msg = None
     if res_status == "NONRESIDENT_ALIEN" and v_type in (STUDENT_VISAS | SCHOLAR_VISAS) and req.w2_fica_withheld > 0:
         fica_refund = round(req.w2_fica_withheld, 2)
-        fica_msg = (
-            f"Nonresident {v_type} holders are exempt from Social Security and Medicare taxes under IRC §3121(b)(19). "
-            f"You can claim a ${fica_refund:,.2f} refund using IRS Form 843 and Form 8316."
+        fica_msg = tr(
+            req.language,
+            "fica_explanation",
+            visa=v_type,
+            amount=fica_refund,
         )
 
     paid = req.w2_federal_withheld + req.estimated_payments_already_made
@@ -116,7 +119,7 @@ def calculate_taxes(req: TaxCalculationRequest) -> TaxCalculationResponse:
     schedule = [
         QuarterlyPaymentItem(
             quarter=q["quarter"],
-            period=q["period"],
+            period=localized_period(req.language, q["period"]),
             due_date=q["due_date"],
             amount_due=per_quarter,
         )

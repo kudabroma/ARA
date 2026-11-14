@@ -17,11 +17,35 @@ from app.schemas import (
     VisaStay,
     dump_model,
 )
+from app.i18n import normalize_language, tr
 from app.services.residency import calculate_residency
 from app.services.taxes import calculate_taxes
 
 _CACHE: Dict[str, Tuple[str, str]] = {}
 _KEY_INDEX: int = 0
+
+_LANGUAGE_NAMES = {"en": "English", "ru": "Russian", "es": "Spanish"}
+
+
+def _language_instruction(language: str) -> str:
+    return (
+        f"Answer strictly in {_LANGUAGE_NAMES[language]}. If the user's latest message is written "
+        "in another language, answer in the language of that latest message instead. Keep all "
+        "suggested replies in the same language as the answer and do not mix languages."
+    )
+
+
+def _detect_language(text: str, default: str) -> str:
+    if re.search(r"[а-яё]", text, re.IGNORECASE):
+        return "ru"
+    if re.search(r"[¿¡áéíóúñ]", text, re.IGNORECASE) or re.search(
+        r"\b(hola|gracias|cómo|qué|soy|estoy|tengo|puedo|ayuda|por favor|"
+        r"buenos|buenas|necesito|quiero|ingresos|impuestos|residente|estudiante)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return "es"
+    return default
 
 
 def _get_keys(env_name: str) -> List[str]:
@@ -41,6 +65,7 @@ def _call_chat_completions(
     api_key: str,
     model: str,
     prompt: str,
+    language: str,
     extra_headers: Optional[Dict[str, str]] = None,
 ) -> Optional[str]:
     payload = {
@@ -50,7 +75,8 @@ def _call_chat_completions(
                 "role": "system",
                 "content": (
                     "You are a US tax assistant for visa holders and 1099 freelancers. "
-                    "Explain the provided deterministic numbers clearly without inventing new math."
+                    "Explain the provided deterministic numbers clearly without inventing new math. "
+                    + _language_instruction(language)
                 ),
             },
             {"role": "user", "content": prompt},
@@ -87,8 +113,9 @@ def _call_chat_completions(
     return None
 
 
-def call_llm(prompt: str) -> Tuple[Optional[str], str]:
-    digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()
+def call_llm(prompt: str, language: str = "en") -> Tuple[Optional[str], str]:
+    language = normalize_language(language)
+    digest = hashlib.sha256(f"{language}\0{prompt}".encode("utf-8")).hexdigest()
     if digest in _CACHE:
         return _CACHE[digest]
 
@@ -125,7 +152,7 @@ def call_llm(prompt: str) -> Tuple[Optional[str], str]:
 
     for env_var, endpoint, model, label, headers in providers:
         for key in _get_keys(env_var):
-            text = _call_chat_completions(endpoint, key, model, prompt, headers)
+            text = _call_chat_completions(endpoint, key, model, prompt, language, headers)
             if text:
                 res = (text, f"{label}:{model}")
                 _CACHE[digest] = res
@@ -135,7 +162,7 @@ def call_llm(prompt: str) -> Tuple[Optional[str], str]:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
             body = {
-                "contents": [{"parts": [{"text": prompt}]}],
+                "contents": [{"parts": [{"text": f"{_language_instruction(language)}\n\n{prompt}"}]}],
                 "generationConfig": {"temperature": 0.2, "maxOutputTokens": 700},
             }
             req = urllib.request.Request(
@@ -157,19 +184,20 @@ def call_llm(prompt: str) -> Tuple[Optional[str], str]:
 
 
 def generate_explanation(req: ExplainRequest) -> Dict[str, Any]:
-    lang = req.language.lower()
+    lang = normalize_language(req.language)
+    reply_language = _detect_language(req.user_question or "", lang)
     res = req.residency_result or {}
     tax = req.tax_result or {}
 
     prompt = (
-        f"Explain these US tax results in {'Russian' if lang == 'ru' else 'English'} in 3 short bullet points "
+        f"{_language_instruction(lang)} Explain these US tax results in 3 short bullet points "
         f"(1. Residency status & day count, 2. Tax liability & deduction savings, 3. Forms & deadlines).\n"
         f"Residency: {json.dumps(res, ensure_ascii=False)}\n"
         f"Taxes: {json.dumps(tax, ensure_ascii=False)}\n"
         f"Question: {req.user_question or 'None'}"
     )
 
-    text, provider = call_llm(prompt)
+    text, provider = call_llm(prompt, lang)
     if not text:
         status = res.get("residency_status", tax.get("residency_status", "RESIDENT_ALIEN"))
         w_days = res.get("total_weighted_days", 0)
@@ -178,34 +206,28 @@ def generate_explanation(req: ExplainRequest) -> Dict[str, Any]:
         saved = tax.get("Deduction_tax_savings_usd", 0.0)
         fica_ref = tax.get("erroneous_fica_refund_amount", 0.0)
 
-        if lang == "ru":
-            parts = [
-                f"**Налоговый статус ({status}):** Зачётных дней в текущем году — **{c_days}**, взвешенных за 3 года — **{w_days}** (порог 183 дня по IRS Pub 519)."
-            ]
-            if tax:
-                msg = f"**Налоги и вычеты:** Итоговый налог — **${tot_tax:,.2f}**, экономия за счёт бизнес-вычетов — **${saved:,.2f}**."
-                if fica_ref > 0:
-                    msg += f" Обнаружено ошибочное удержание FICA на **${fica_ref:,.2f}** (возврат через Form 843 и Form 8316)."
-                parts.append(msg)
-            parts.append("**Следующий шаг:** Скачайте Form 8843 и проверьте график квартальных платежей Form 1040-ES.")
-            text = "\n\n".join(parts)
-        else:
-            parts = [
-                f"**Tax Residency ({status}):** You have **{c_days} countable days** this year and **{w_days} weighted days** over 3 years (183-day threshold under IRS Pub 519)."
-            ]
-            if tax:
-                msg = f"**Taxes & Savings:** Total estimated tax is **${tot_tax:,.2f}**, with **${saved:,.2f}** saved via business deductions."
-                if fica_ref > 0:
-                    msg += f" Erroneous FICA withholding of **${fica_ref:,.2f}** detected (recoverable via Form 843 & Form 8316)."
-                parts.append(msg)
-            parts.append("**Next Steps:** Download your pre-filled Form 8843 PDF and review your Form 1040-ES quarterly schedule.")
-            text = "\n\n".join(parts)
+        parts = [
+            tr(
+                reply_language,
+                "explain_residency",
+                status=status,
+                countable=c_days,
+                weighted=w_days,
+            )
+        ]
+        if tax:
+            msg = tr(reply_language, "explain_tax", tax=tot_tax, saved=saved)
+            if fica_ref > 0:
+                msg += tr(reply_language, "explain_fica", amount=fica_ref)
+            parts.append(msg)
+        parts.append(tr(reply_language, "explain_next"))
+        text = "\n\n".join(parts)
 
     return {
         "provider": provider,
-        "language": lang,
+        "language": reply_language,
         "explanation_markdown": text,
-        "disclaimer": "Informational calculation based on IRS Publication 519; not formal CPA or legal advice.",
+        "disclaimer": tr(reply_language, "explain_disclaimer"),
     }
 
 
@@ -291,7 +313,7 @@ def _extract_slots(message: str, profile: CollectedTaxProfile) -> CollectedTaxPr
 
 
 def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
-    lang = req.language.lower()
+    lang = normalize_language(req.language)
     profile = req.collected_profile or CollectedTaxProfile()
 
     for msg in req.messages:
@@ -308,6 +330,8 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
     if profile.gross_1099_income and profile.gross_1099_income > 0 and profile.business_deductions is None:
         missing.append("business_deductions")
 
+    last_msg = req.messages[-1].content if req.messages else ""
+    reply_language = _detect_language(last_msg, lang)
     live_res: Optional[Dict[str, Any]] = None
     live_tax: Optional[Dict[str, Any]] = None
 
@@ -328,6 +352,7 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
                 stays=stays,
                 prior_exempt_calendar_years=list(range(entry_yr, profile.tax_year - 2)),
                 country_of_citizenship=profile.country_of_citizenship or "Kazakhstan",
+                language=lang,
             )
         )
         live_res = dump_model(res_obj)
@@ -345,68 +370,60 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
                     w2_wages=profile.w2_wages or 0.0,
                     w2_federal_withheld=profile.w2_federal_withheld or 0.0,
                     w2_fica_withheld=profile.w2_fica_withheld or 0.0,
+                    language=lang,
                 )
             )
             live_tax = dump_model(tax_obj)
 
-    last_msg = req.messages[-1].content if req.messages else ""
     prompt = (
-        f"You are NomadTax AI speaking {'Russian' if lang == 'ru' else 'English'}.\n"
+        f"You are ARATax AI. {_language_instruction(lang)}\n"
         f"User message: {last_msg}\n"
         f"Profile: {json.dumps(dump_model(profile), ensure_ascii=False)}\n"
         f"Missing fields: {missing}\n"
         f"Calculated Residency: {json.dumps(live_res, ensure_ascii=False)}\n"
         f"Calculated Taxes: {json.dumps(live_tax, ensure_ascii=False)}\n"
-        f"Reply in 2-3 concise sentences. If missing fields exist, ask for the first missing field. Otherwise summarize the result."
+        f"Reply in 2-3 concise sentences. If fields are missing, ask for the first one. "
+        f"Otherwise summarize the result. Use the user's latest-message language if it differs "
+        f"from the selected language."
     )
-    reply, provider = call_llm(prompt)
+    reply, provider = call_llm(prompt, lang)
 
     if not reply:
         if "visa_type" in missing:
-            reply = (
-                "На какой визе или в каком статусе ты находишься в США (например, F-1, OPT, H-1B, O-1, J-1)?"
-                if lang == "ru"
-                else "What visa or status are you currently on in the US (e.g., F-1, OPT, H-1B, O-1, J-1)?"
-            )
+            reply = tr(reply_language, "chat_ask_visa")
         elif "entry_date" in missing:
-            reply = (
-                f"Статус {profile.visa_type} учтён. В каком году и месяце ты впервые въехал в США по этому статусу?"
-                if lang == "ru"
-                else f"Got it ({profile.visa_type}). When did you first enter the US in this status?"
-            )
+            reply = tr(reply_language, "chat_ask_entry", visa=profile.visa_type)
         elif "income_sources" in missing:
             st = live_res["residency_status"] if live_res else "NONRESIDENT_ALIEN"
-            reply = (
-                f"Предварительный статус — {st}. Какой доход был за год по 1099 / фрилансу и по W-2 (или $0)?"
-                if lang == "ru"
-                else f"Preliminary status is {st}. How much income did you earn from 1099 freelancing and/or W-2 wages?"
-            )
+            reply = tr(reply_language, "chat_ask_income", status=st)
         elif "business_deductions" in missing:
-            reply = (
-                f"Доход по 1099 (${profile.gross_1099_income:,.0f}) записан. Какая сумма рабочих расходов (техника, софт, облака, поездки) была за год?"
-                if lang == "ru"
-                else f"Recorded ${profile.gross_1099_income:,.0f} in 1099 income. How much did you spend on deductible work expenses?"
+            reply = tr(
+                reply_language,
+                "chat_ask_deductions",
+                income=profile.gross_1099_income or 0.0,
             )
         else:
             tot = live_tax["total_tax_liability"] if live_tax else 0.0
             saved = live_tax["Deduction_tax_savings_usd"] if live_tax else 0.0
             st = live_res["residency_status"] if live_res else "NONRESIDENT_ALIEN"
-            reply = (
-                f"Расчёт готов: статус — {st}, итоговый налог — ${tot:,.2f}, экономия на вычетах — ${saved:,.2f}."
-                if lang == "ru"
-                else f"Calculation complete: status is {st}, estimated tax is ${tot:,.2f}, and deductions saved ${saved:,.2f}."
+            reply = tr(
+                reply_language,
+                "chat_done",
+                status=st,
+                tax=tot,
+                saved=saved,
             )
 
     if "visa_type" in missing:
-        chips = ["F-1 Student", "F-1 OPT", "H-1B", "O-1 / Freelancer", "J-1 Scholar"]
+        chips = [tr(reply_language, f"chat_visa_{i}") for i in range(1, 6)]
     elif "entry_date" in missing:
-        chips = ["Август 2023 (2023-08-20)", "Август 2024 (2024-08-25)", "Январь 2020 (2020-01-15)"]
+        chips = [tr(reply_language, f"chat_entry_{i}") for i in range(1, 4)]
     elif "income_sources" in missing:
-        chips = ["$28,000 по 1099 и $45,000 по W-2", "Только 1099: $85,000", "Дохода не было ($0)"]
+        chips = [tr(reply_language, f"chat_income_{i}") for i in range(1, 4)]
     elif "business_deductions" in missing:
-        chips = ["Расходы $4,650", "Расходы $12,000", "Расходов не было ($0)"]
+        chips = [tr(reply_language, f"chat_deduction_{i}") for i in range(1, 4)]
     else:
-        chips = ["Скачать PDF Form 8843", "Почему нельзя TurboTax?", "Как вернуть FICA?"]
+        chips = [tr(reply_language, f"chat_complete_{i}") for i in range(1, 4)]
 
     return {
         "reply": reply,
