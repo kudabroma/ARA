@@ -287,9 +287,13 @@ def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
         )
 
     if res_status == "NONRESIDENT_ALIEN":
+        is_indian_citizen = (req.country_of_citizenship or "").strip().lower() == "india"
         warnings = [
             tr(req.language, "warning_nonresident_software"),
-            tr(req.language, "warning_nonresident_deduction"),
+            tr(
+                req.language,
+                "warning_nonresident_deduction" if is_indian_citizen else "warning_nonresident_deduction_general",
+            ),
         ]
     elif res_status == "DUAL_STATUS_ALIEN":
         warnings = [

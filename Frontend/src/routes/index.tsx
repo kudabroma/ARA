@@ -2,7 +2,8 @@ import { createFileRoute } from "@tanstack/react-router";
 import { motion, useReducedMotion } from "framer-motion";
 import { useAra } from "@/components/ara/context";
 import { Calculation } from "@/components/ara/calculation";
-import { Results, Documents } from "@/components/ara/results";
+import { Results } from "@/components/ara/results";
+import { Documents } from "@/components/ara/documents";
 import { Chat } from "@/components/ara/chat";
 export const Route = createFileRoute("/")({
   head: () => ({

@@ -565,35 +565,76 @@ textarea {
 }
 .results-layout {
   display: grid;
-  grid-template-columns: 290px minmax(0, 1fr);
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 24px;
   align-items: start;
 }
+/* Sticky under the 76px header. Normally fits without scrolling; with many entries it gets a
+   thin, hover-only scrollbar so the page never shows a second heavy scrollbar. */
 .history-panel {
   position: sticky;
   top: 96px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: calc(100vh - 120px);
+  max-height: calc(100vh - 116px);
   overflow-y: auto;
+  overscroll-behavior: contain;
+  margin-right: -6px;
+  padding-right: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+.history-panel:hover {
+  scrollbar-color: color-mix(in srgb, var(--muted-foreground) 35%, transparent) transparent;
+}
+.history-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.history-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.history-panel::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 6px;
+}
+.history-panel:hover::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--muted-foreground) 35%, transparent);
 }
 .history-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: 6px 8px;
 }
+/* Title + counter never truncate; if the column is too narrow the button wraps below. */
 .history-head h2 {
-  font-size: 13px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14px;
   font-weight: 600;
+  white-space: nowrap;
+}
+.history-head > button {
+  flex-shrink: 0;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  gap: 4px;
+}
+.history-head > button svg {
+  width: 14px;
+  height: 14px;
 }
 .history-count {
-  margin-left: 4px;
+  flex-shrink: 0;
   border-radius: 20px;
   background: var(--secondary);
-  padding: 2px 7px;
-  font-size: 10px;
+  padding: 1px 7px;
+  font-size: 11px;
+  font-weight: 500;
   color: var(--muted-foreground);
 }
 .history-compare {
@@ -601,14 +642,24 @@ textarea {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  font-size: 11px;
+  margin-top: -4px;
+  font-size: 12px;
   color: var(--muted-foreground);
+}
+.history-compare > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.history-compare > button {
+  flex-shrink: 0;
 }
 .history-empty {
   border: 1px dashed var(--border);
   border-radius: 12px;
   padding: 18px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--muted-foreground);
   text-align: center;
 }
@@ -616,57 +667,135 @@ textarea {
   display: grid;
   gap: 10px;
 }
+/* Every card has the same border, padding and radius; the active one only changes colour. */
 .history-card {
-  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 12px 8px;
+  border: 1px solid var(--glass-border);
   border-radius: 14px;
-  transition: border-color 0.15s;
+  font-size: 13px;
+  transition:
+    box-shadow 0.15s,
+    background-color 0.15s;
 }
 .history-card.active {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 1px var(--primary), var(--glass-shadow);
+  background: color-mix(in srgb, var(--primary) 7%, var(--card));
+  box-shadow:
+    inset 0 0 0 1.5px var(--primary),
+    var(--glass-shadow);
 }
 .history-card-main {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 6px;
   width: 100%;
+  min-width: 0;
   text-align: left;
   cursor: pointer;
+  border-radius: 8px;
+}
+.history-card-main:disabled {
+  cursor: default;
 }
 .history-card-meta {
   display: flex;
   align-items: center;
   gap: 5px;
-  font-size: 10px;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 20px;
   color: var(--muted-foreground);
+  white-space: nowrap;
+}
+.history-card-meta svg {
+  flex-shrink: 0;
+}
+.history-card-meta time {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.history-card-meta .status-pill {
+  flex-shrink: 0;
+  margin-left: auto;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 16px;
 }
 .history-card-label {
-  font-size: 13px;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  font-size: 14px;
   font-weight: 600;
   line-height: 1.4;
+  overflow-wrap: anywhere;
 }
-.history-refund {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--accent-foreground);
-}
+.history-refund,
 .history-owe {
   font-size: 13px;
   font-weight: 600;
 }
-.history-card-actions {
+.history-refund {
+  color: var(--accent-foreground);
+}
+.history-card-footer {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 2px;
-  margin-top: 8px;
+  gap: 8px;
+  min-height: 32px;
+  border-top: 1px solid var(--border);
+  padding-top: 6px;
 }
 .history-check {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
-  margin-right: auto;
-  font-size: 11px;
+  gap: 6px;
+  min-width: 0;
+  font-size: 13px;
   color: var(--muted-foreground);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.history-check input {
+  width: 14px;
+  height: 14px;
+  accent-color: var(--primary);
+}
+.history-card-icons {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.history-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  color: var(--muted-foreground);
+  transition:
+    background-color 0.15s,
+    color 0.15s;
+}
+.history-icon-btn:hover:not(:disabled) {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+.history-icon-btn.danger:hover:not(:disabled) {
+  color: var(--destructive);
+}
+.history-icon-btn:disabled {
+  opacity: 0.4;
+}
+.history-icon-btn svg {
+  width: 15px;
+  height: 15px;
 }
 .history-locked {
   min-height: 0;
@@ -683,10 +812,13 @@ textarea {
   .history-panel {
     position: static;
     max-height: none;
+    overflow: visible;
+    margin-right: 0;
+    padding-right: 0;
   }
   .history-list {
     grid-auto-flow: column;
-    grid-auto-columns: minmax(250px, 80%);
+    grid-auto-columns: minmax(270px, 80%);
     overflow-x: auto;
     padding-bottom: 4px;
   }
@@ -1011,5 +1143,19 @@ textarea {
   *::after {
     animation: none !important;
     transition: none !important;
+  }
+}
+.doc-card {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px;
+}
+@media (max-width: 760px) {
+  .doc-card {
+    flex-wrap: wrap;
+  }
+  .doc-card > button {
+    width: 100%;
   }
 }

@@ -11,6 +11,8 @@ export type CalculationEntry = {
   createdAt: number;
   source: CalculationSource;
   label: string;
+  /** Demo preset id, so the label can follow the UI language */
+  presetId?: string | undefined;
   /** analyze-all request body, already cleaned */
   request: Record<string, any>;
   response: Record<string, any>;
@@ -41,6 +43,10 @@ export type State = {
   result: Record<string, any> | null;
   section: Section;
   setSection: (section: Section) => void;
+  /** Set when "New calculation" should open with the Form 8843 section expanded. */
+  pendingForm8843: boolean;
+  openForm8843: () => void;
+  clearPendingForm8843: () => void;
   lock: boolean;
   setLock: (locked: boolean) => void;
   messages: Message[];

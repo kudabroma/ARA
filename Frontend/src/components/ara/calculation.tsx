@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, type ReactNode } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import {
   Globe2,
@@ -23,15 +22,14 @@ import { Switch } from "@/components/ui/switch";
 import { useAra } from "./context";
 import {
   ApiError,
-  request,
   analyzeAll,
   buildBody,
   calculationLabel,
   cleanPayload,
-  backendConfigured,
   presetInputs,
   type Inputs,
 } from "@/lib/ara/api";
+import { useDemoPresets } from "./use-demo-presets";
 import type { Key } from "@/lib/ara/i18n";
 const visas = ["F-1", "OPT", "J-1", "H-1B", "O-1", "L-1", "Other"];
 const incomeKeys = [
@@ -114,16 +112,28 @@ export function Calculation() {
   const [sample, setSample] = useState(false);
   const residencyRef = useRef<HTMLDivElement>(null);
   const [residencyOpenSignal, setResidencyOpenSignal] = useState(0);
-  const presets = useQuery({
-    queryKey: ["demo-presets"],
-    queryFn: () => request<any>("/api/demo-presets"),
-    enabled: backendConfigured(),
-    retry: false,
-  });
-  const items = Array.isArray(presets.data) ? presets.data : presets.data?.presets || [];
+  const form8843Ref = useRef<HTMLDivElement>(null);
+  const [form8843OpenSignal, setForm8843OpenSignal] = useState(0);
+  // "Fill in Form 8843 details" from Documents: expand that section and scroll to it once.
+  const { pendingForm8843, clearPendingForm8843 } = a;
+  useEffect(() => {
+    if (!pendingForm8843) return;
+    clearPendingForm8843();
+    setForm8843OpenSignal((n) => n + 1);
+    requestAnimationFrame(() =>
+      form8843Ref.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+    );
+  }, [pendingForm8843, clearPendingForm8843]);
+  const presets = useDemoPresets(a.language);
+  const items = presets.items;
   const update = (patch: Partial<Inputs>) => a.setInputs((prev) => ({ ...prev, ...patch }));
   const invalid = (key: string) => error?.fields.some((f) => f.endsWith(key)) || false;
-  const run = async (preset?: { body: Record<string, any>; title?: string; inputs: Inputs }) => {
+  const run = async (preset?: {
+    body: Record<string, any>;
+    title?: string;
+    presetId?: string;
+    inputs: Inputs;
+  }) => {
     setError(null);
     setBusy(true);
     try {
@@ -132,6 +142,7 @@ export function Calculation() {
       a.addEntry({
         source: preset ? "preset" : "form",
         label: preset?.title || calculationLabel(body),
+        presetId: preset?.presetId,
         request: body,
         response,
         language: a.language,
@@ -189,18 +200,19 @@ export function Calculation() {
           {presets.isError && <div role="alert" className="notice my-4 flex items-center justify-between gap-3"><span>{a.t("network_error")}</span><Button variant="ghost" size="sm" onClick={() => presets.refetch()} disabled={presets.isFetching}>{a.t("retry")}</Button></div>}
           {items.length > 0 ? (
             <div className="quick-starts">
-              {items.slice(0, 3).map((preset: any, i: number) => (
+              {items.slice(0, 3).map((preset, i) => (
                 <Button
                   variant="outline"
                   className="quick-chip"
                   disabled={busy}
-                  key={preset.id || i}
+                  key={preset.preset_id || i}
                   onClick={() => {
                     const inputs = presetInputs(preset.payload);
                     a.setInputs(inputs);
                     run({
                       body: { ...preset.payload, language: a.language },
                       title: preset.title,
+                      presetId: preset.preset_id,
                       inputs,
                     });
                   }}
@@ -208,7 +220,7 @@ export function Calculation() {
                   <Sparkles size={16} />
                   <span>
                     <strong>{preset.title}</strong>
-                    <small>{preset.description}</small>
+                    <small>{preset.subtitle ?? preset.description}</small>
                   </span>
                 </Button>
               ))}
@@ -481,30 +493,41 @@ export function Calculation() {
                 <p className="mt-2 text-[10px] text-muted-foreground">{a.t("sampleNote")}</p>
               )}
             </Section>
-            <Section icon={FileText} title={a.t("form")} hint={a.t("formHint")}>
-              <div className="field-grid">
-                {profileKeys.map((k) => (
-                  <div key={k}>
-                    {field(
-                      k,
-                      a.t(k),
-                      String(a.inputs.profile[k] || ""),
-                      (v) => update({ profile: { ...a.inputs.profile, [k]: v } }),
-                      k === "first_entry_date" ? "date" : k.startsWith("days_") ? "number" : "text",
-                    )}
-                  </div>
-                ))}
-                <label className="flex items-center gap-3 text-xs">
-                  <Switch
-                    checked={Boolean(a.inputs.profile["is_student"])}
-                    onCheckedChange={(v) =>
-                      update({ profile: { ...a.inputs.profile, is_student: v } })
-                    }
-                  />
-                  {a.t("is_student")}
-                </label>
-              </div>
-            </Section>
+            <div ref={form8843Ref} className="scroll-mt-24">
+              <Section
+                icon={FileText}
+                title={a.t("form")}
+                hint={a.t("formHint")}
+                openSignal={form8843OpenSignal}
+              >
+                <div className="field-grid">
+                  {profileKeys.map((k) => (
+                    <div key={k}>
+                      {field(
+                        k,
+                        a.t(k),
+                        String(a.inputs.profile[k] || ""),
+                        (v) => update({ profile: { ...a.inputs.profile, [k]: v } }),
+                        k === "first_entry_date"
+                          ? "date"
+                          : k.startsWith("days_")
+                            ? "number"
+                            : "text",
+                      )}
+                    </div>
+                  ))}
+                  <label className="flex items-center gap-3 text-xs">
+                    <Switch
+                      checked={Boolean(a.inputs.profile["is_student"])}
+                      onCheckedChange={(v) =>
+                        update({ profile: { ...a.inputs.profile, is_student: v } })
+                      }
+                    />
+                    {a.t("is_student")}
+                  </label>
+                </div>
+              </Section>
+            </div>
             {error && (
               <div role="alert" className="notice mx-5 my-4 flex items-start gap-3">
                 <AlertCircle className="mt-1 size-4 shrink-0" />

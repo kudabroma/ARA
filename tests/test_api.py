@@ -1,5 +1,8 @@
+import json
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -17,6 +20,52 @@ def test_health_and_presets():
     presets = client.get("/api/demo-presets")
     assert presets.status_code == 200
     assert presets.json()["count"] == 3
+
+
+def test_demo_presets_localize_titles_but_not_payload():
+    by_lang = {
+        lang: client.get("/api/demo-presets", params={"language": lang}).json()["presets"]
+        for lang in ("en", "ru", "es")
+    }
+    assert client.get("/api/demo-presets").json()["presets"] == by_lang["en"]
+    for i in range(3):
+        payloads = {lang: presets[i]["payload"] for lang, presets in by_lang.items()}
+        assert payloads["en"] == payloads["ru"] == payloads["es"]
+        titles = {presets[i]["title"] for presets in by_lang.values()}
+        assert len(titles) == 3
+    assert by_lang["ru"][0]["title"] == "Выпускник F-1 OPT: W-2 + фриланс 1099, возврат FICA $3,442"
+    for presets in by_lang.values():
+        assert "F-1 OPT" in presets[0]["title"] and "$3,442" in presets[0]["title"]
+
+
+def test_nonresident_texts_are_brand_neutral_and_india_warning_is_conditional():
+    import json as _json
+
+    for lang in ("en", "ru", "es"):
+        presets = client.get("/api/demo-presets", params={"language": lang}).json()["presets"]
+        for preset in presets:
+            data = client.post("/api/analyze-all", json={**preset["payload"], "language": lang}).json()
+            dumped = _json.dumps(data, ensure_ascii=False)
+            for brand in ("TurboTax", "FreeTaxUSA", "TaxSlayer", "H&R Block"):
+                assert brand not in dumped
+
+    def warnings(country):
+        res = client.post(
+            "/api/analyze-all",
+            json={
+                "residency": {
+                    "tax_year": 2025,
+                    "stays": [{"visa_type": "F-1", "entry_date": "2024-08-20"}],
+                    "country_of_citizenship": country,
+                }
+            },
+        ).json()["residency"]
+        assert res["residency_status"] == "NONRESIDENT_ALIEN"
+        return " ".join(res["software_warnings"])
+
+    assert "India" in warnings("India")
+    assert "India" not in warnings("Kazakhstan")
+    assert "generally cannot claim the standard deduction" in warnings("Kazakhstan")
 
 
 def test_analyze_all_and_pdf():
@@ -183,6 +232,88 @@ def test_explanation_fallback_localizes_to_question_language(monkeypatch):
     assert data["language"] == "es"
     assert "Residencia fiscal" in data["explanation_markdown"]
     assert "Cálculo informativo" in data["disclaimer"]
+
+
+class _FakeResponse:
+    def __init__(self, payload):
+        self._body = json.dumps(payload).encode("utf-8")
+
+    def read(self):
+        return self._body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
+def _fake_llm(monkeypatch, env_var, payload):
+    from app.services import advisor
+
+    sent = []
+
+    def fake_urlopen(req, timeout=0):
+        sent.append(json.loads(req.data.decode("utf-8")))
+        return _FakeResponse(payload)
+
+    for name in ("OPENROUTER_API_KEY", "OPENAI_API_KEY", "DEEPSEEK_API_KEY", "GROQ_API_KEY", "GEMINI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv(env_var, "test-key")
+    monkeypatch.setattr(advisor.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(advisor, "_CACHE", {})
+    return sent
+
+
+EXPLAIN_BODY = {
+    "residency_result": {"residency_status": "NONRESIDENT_ALIEN", "current_year_countable_days": 92},
+    "tax_result": {"total_tax_liability": 1542.0, "Deduction_tax_savings_usd": 700.0},
+}
+
+
+@pytest.mark.parametrize("language,marker", [("en", "Tax Residency"), ("ru", "Налоговый статус"), ("es", "Residencia fiscal")])
+def test_explanation_cut_by_gemini_token_limit_uses_template(monkeypatch, language, marker):
+    sent = _fake_llm(
+        monkeypatch,
+        "GEMINI_API_KEY",
+        {"candidates": [{"finishReason": "MAX_TOKENS", "content": {"parts": [{"text": "**Residency Status & Day Count:** You are"}]}}]},
+    )
+    data = client.post("/api/explain", json={**EXPLAIN_BODY, "language": language}).json()
+    assert data["provider"] == "deterministic-irs-explainer"
+    assert "You are" not in data["explanation_markdown"]
+    assert marker in data["explanation_markdown"]
+    config = sent[0]["generationConfig"]
+    assert config["maxOutputTokens"] >= 1024
+    assert config["thinkingConfig"]["thinkingBudget"] == 0
+
+
+def test_explanation_cut_by_openai_length_or_empty_uses_template(monkeypatch):
+    sent = _fake_llm(
+        monkeypatch,
+        "OPENAI_API_KEY",
+        {"choices": [{"finish_reason": "length", "message": {"content": "1. You are"}}]},
+    )
+    data = client.post("/api/explain", json={**EXPLAIN_BODY, "language": "en"}).json()
+    assert data["provider"] == "deterministic-irs-explainer"
+    assert sent[0]["max_tokens"] >= 1024
+
+    _fake_llm(monkeypatch, "OPENAI_API_KEY", {"choices": [{"finish_reason": "stop", "message": {"content": "  "}}]})
+    assert client.post("/api/explain", json=EXPLAIN_BODY).json()["provider"] == "deterministic-irs-explainer"
+
+
+def test_complete_llm_explanation_is_returned_in_full(monkeypatch):
+    full = "- You are a nonresident alien for 2025.\n- Your estimated tax is $1,542."
+    sent = _fake_llm(
+        monkeypatch,
+        "GEMINI_API_KEY",
+        {"candidates": [{"finishReason": "STOP", "content": {"parts": [{"text": full}]}}]},
+    )
+    data = client.post("/api/explain", json=EXPLAIN_BODY).json()
+    assert data["provider"] == "gemini:gemini-2.5-flash"
+    assert data["explanation_markdown"] == full
+    prompt = sent[0]["contents"][0]["parts"][0]["text"]
+    assert "3-5 short bullet points" in prompt and "complete" in prompt
+    assert "commercial tax software" in prompt
 
 
 if __name__ == "__main__":

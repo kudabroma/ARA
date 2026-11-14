@@ -12,7 +12,7 @@ const en = {
   yourForm: "Your form",
   residentFormText: "You are a resident for tax purposes. Standard tax software works for you.",
   nonresidentFormText:
-    "You are a nonresident for tax purposes. Popular tools like TurboTax, FreeTaxUSA and TaxSlayer do not support Form 1040-NR. Filing a regular 1040 by mistake can mean an amended return (Form 1040-X), interest, penalties and delayed refunds.",
+    "You are a nonresident for tax purposes and file Form 1040-NR. Many popular tax programs only support the standard Form 1040, so check that your software supports 1040-NR before you start. Filing a regular 1040 by mistake can mean an amended return (Form 1040-X), interest, penalties and delayed refunds.",
   dualReturn: "Dual-status return",
   dualFormText:
     "Your status changed during the year (for example F-1 to H-1B). You need a dual-status return, which standard software usually can't prepare.",
@@ -242,6 +242,13 @@ const en = {
   compareDeductions: "Deductions",
   compareFica: "FICA refund",
   compareNet: "Result",
+  cardOwe: "To pay",
+  cardRefund: "Refund",
+  downloadPdf: "Download Form 8843 (PDF)",
+  generate8843: "Generate Form 8843",
+  generate8843Hint:
+    "Your current calculation qualifies you as an exempt individual (F/J/M). Generate Form 8843 from your profile details.",
+  fill8843: "Fill in Form 8843 details",
 };
 const ru: Partial<typeof en> = {
   residentQuestion: "Резидент или нерезидент?",
@@ -257,7 +264,7 @@ const ru: Partial<typeof en> = {
   residentFormText:
     "Вы резидент для целей налогообложения. Стандартные налоговые программы вам подходят.",
   nonresidentFormText:
-    "Вы нерезидент для целей налогообложения. Популярные программы TurboTax, FreeTaxUSA и TaxSlayer не поддерживают Form 1040-NR. Ошибочная подача обычной Form 1040 может потребовать исправленной декларации (Form 1040-X), привести к процентам, штрафам и задержке возврата.",
+    "Вы нерезидент для целей налогообложения и подаёте Form 1040-NR. Многие популярные налоговые программы поддерживают только стандартную Form 1040, поэтому перед началом проверьте, что ваша программа поддерживает 1040-NR. Ошибочная подача обычной Form 1040 может потребовать исправленной декларации (Form 1040-X), привести к процентам, штрафам и задержке возврата.",
   dualReturn: "Декларация с двойным статусом",
   dualFormText:
     "Ваш статус изменился в течение года (например, с F-1 на H-1B). Вам нужна декларация с двойным статусом, которую стандартные программы обычно не могут подготовить.",
@@ -490,6 +497,13 @@ const ru: Partial<typeof en> = {
   compareDeductions: "Вычеты",
   compareFica: "Возврат FICA",
   compareNet: "Итог",
+  cardOwe: "К уплате",
+  cardRefund: "Вернут",
+  downloadPdf: "Скачать Form 8843 (PDF)",
+  generate8843: "Сгенерировать Form 8843",
+  generate8843Hint:
+    "По текущему расчёту вы освобождённое лицо (F/J/M). Сгенерируйте Form 8843 по данным профиля.",
+  fill8843: "Заполнить данные для Form 8843",
 };
 const es: Partial<typeof en> = {
   residentQuestion: "¿Residente o no residente?",
@@ -504,7 +518,7 @@ const es: Partial<typeof en> = {
   yourForm: "Tu formulario",
   residentFormText: "Eres residente a efectos fiscales. Los programas fiscales estándar te sirven.",
   nonresidentFormText:
-    "Eres no residente a efectos fiscales. Herramientas populares como TurboTax, FreeTaxUSA y TaxSlayer no admiten Form 1040-NR. Presentar por error un Form 1040 normal puede requerir una declaración enmendada (Form 1040-X), intereses, multas y retrasos en las devoluciones.",
+    "Eres no residente a efectos fiscales y presentas Form 1040-NR. Muchos programas fiscales populares solo admiten el Form 1040 estándar, así que comprueba que tu programa admita 1040-NR antes de empezar. Presentar por error un Form 1040 normal puede requerir una declaración enmendada (Form 1040-X), intereses, multas y retrasos en las devoluciones.",
   dualReturn: "Declaración de doble estatus",
   dualFormText:
     "Tu estado cambió durante el año (por ejemplo de F-1 a H-1B). Necesitas una declaración de doble estatus, que los programas estándar normalmente no pueden preparar.",
@@ -735,6 +749,13 @@ const es: Partial<typeof en> = {
   compareDeductions: "Deducciones",
   compareFica: "Devolución FICA",
   compareNet: "Resultado",
+  cardOwe: "A pagar",
+  cardRefund: "Te devuelven",
+  downloadPdf: "Descargar Form 8843 (PDF)",
+  generate8843: "Generar Form 8843",
+  generate8843Hint:
+    "Según tu cálculo actual eres una persona exenta (F/J/M). Genera el Form 8843 con los datos de tu perfil.",
+  fill8843: "Completar datos de Form 8843",
 };
 export type Key = keyof typeof en;
 export const isKey = (key: string): key is Key => key in en;

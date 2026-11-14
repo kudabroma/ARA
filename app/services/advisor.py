@@ -26,6 +26,14 @@ _KEY_INDEX: int = 0
 
 _LANGUAGE_NAMES = {"en": "English", "ru": "Russian", "es": "Spanish"}
 
+_SYSTEM_RULES = (
+    "You are a US tax assistant for visa holders and 1099 freelancers. "
+    "Explain the provided deterministic numbers clearly without inventing new math. "
+    "Do not recommend or criticize specific commercial tax software or tax preparation "
+    "companies by name; if relevant, say neutrally that the user should check that their "
+    "software or preparer supports Form 1040-NR. "
+)
+
 
 def _language_instruction(language: str) -> str:
     return (
@@ -60,6 +68,17 @@ def _get_keys(env_name: str) -> List[str]:
     return keys[_KEY_INDEX:] + keys[:_KEY_INDEX]
 
 
+LLM_MAX_OUTPUT_TOKENS = 1024
+
+
+def _complete_text(text: Optional[str]) -> Optional[str]:
+    """Returns stripped text, or None for an empty answer."""
+    if not isinstance(text, str):
+        return None
+    text = text.strip()
+    return text or None
+
+
 def _call_chat_completions(
     url: str,
     api_key: str,
@@ -73,16 +92,12 @@ def _call_chat_completions(
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "You are a US tax assistant for visa holders and 1099 freelancers. "
-                    "Explain the provided deterministic numbers clearly without inventing new math. "
-                    + _language_instruction(language)
-                ),
+                "content": _SYSTEM_RULES + _language_instruction(language),
             },
             {"role": "user", "content": prompt},
         ],
         "temperature": 0.2,
-        "max_tokens": 600,
+        "max_tokens": LLM_MAX_OUTPUT_TOKENS,
     }
     headers = {
         "Content-Type": "application/json",
@@ -102,7 +117,11 @@ def _call_chat_completions(
             )
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                return data["choices"][0]["message"]["content"]
+                choice = data["choices"][0]
+                # A response cut by the token limit is never shown; the caller falls back.
+                if choice.get("finish_reason") == "length":
+                    return None
+                return _complete_text(choice["message"].get("content"))
         except urllib.error.HTTPError as err:
             if err.code == 429 and attempt == 0:
                 time.sleep(0.35 + random.uniform(0.05, 0.2))
@@ -162,8 +181,14 @@ def call_llm(prompt: str, language: str = "en") -> Tuple[Optional[str], str]:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={key}"
             body = {
-                "contents": [{"parts": [{"text": f"{_language_instruction(language)}\n\n{prompt}"}]}],
-                "generationConfig": {"temperature": 0.2, "maxOutputTokens": 700},
+                "contents": [{"parts": [{"text": f"{_SYSTEM_RULES}{_language_instruction(language)}\n\n{prompt}"}]}],
+                "generationConfig": {
+                    "temperature": 0.2,
+                    "maxOutputTokens": LLM_MAX_OUTPUT_TOKENS,
+                    # gemini-2.5-flash "thinks" by default and that budget is taken from
+                    # maxOutputTokens, which cut answers mid-sentence. Disable thinking.
+                    "thinkingConfig": {"thinkingBudget": 0},
+                },
             }
             req = urllib.request.Request(
                 url,
@@ -173,7 +198,13 @@ def call_llm(prompt: str, language: str = "en") -> Tuple[Optional[str], str]:
             )
             with urllib.request.urlopen(req, timeout=8) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
-                text = data["candidates"][0]["content"]["parts"][0]["text"]
+                candidate = data["candidates"][0]
+                if candidate.get("finishReason") not in (None, "STOP"):
+                    continue  # MAX_TOKENS, SAFETY, ...: never show a partial answer
+                parts = candidate.get("content", {}).get("parts", [])
+                text = _complete_text("".join(p.get("text", "") for p in parts))
+                if not text:
+                    continue
                 res = (text, "gemini:gemini-2.5-flash")
                 _CACHE[digest] = res
                 return res
@@ -190,8 +221,9 @@ def generate_explanation(req: ExplainRequest) -> Dict[str, Any]:
     tax = req.tax_result or {}
 
     prompt = (
-        f"{_language_instruction(lang)} Explain these US tax results in 3 short bullet points "
-        f"(1. Residency status & day count, 2. Tax liability & deduction savings, 3. Forms & deadlines).\n"
+        f"{_language_instruction(lang)} Explain these US tax results in 3-5 short bullet points "
+        f"(residency status & day count, tax liability & deduction savings, forms & deadlines). "
+        f"Every sentence must be complete; do not stop mid-sentence.\n"
         f"Residency: {json.dumps(res, ensure_ascii=False)}\n"
         f"Taxes: {json.dumps(tax, ensure_ascii=False)}\n"
         f"Question: {req.user_question or 'None'}"

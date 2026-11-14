@@ -40,7 +40,10 @@ export function AraShell({ children }: { children: ReactNode }) {
     setLanguageRefreshFailed(false);
     analyzeAll(request)
       .then((response) => {
-        if (active) a.updateEntry(entry.id, { request, response, language });
+        if (!active) return;
+        // Keep a Form 8843 generated from the Documents page if analyze-all did not return one.
+        const form_8843 = response["form_8843"] ?? entry.response["form_8843"] ?? null;
+        a.updateEntry(entry.id, { request, response: { ...response, form_8843 }, language });
       })
       .catch(() => {
         if (active) setLanguageRefreshFailed(true);

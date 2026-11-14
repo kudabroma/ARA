@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.i18n import normalize_language, tr
 from app.presets import DEMO_PRESETS
 from app.schemas import (
     ChatAgentRequest,
@@ -70,8 +71,17 @@ def health_check() -> Dict[str, Any]:
 
 
 @app.get("/api/demo-presets")
-def get_demo_presets() -> Dict[str, Any]:
-    return {"count": len(DEMO_PRESETS), "presets": DEMO_PRESETS}
+def get_demo_presets(language: str = "en") -> Dict[str, Any]:
+    lang = normalize_language(language)
+    presets = [
+        {
+            **preset,
+            "title": tr(lang, f"preset_{preset['preset_id']}_title"),
+            "subtitle": tr(lang, f"preset_{preset['preset_id']}_subtitle"),
+        }
+        for preset in DEMO_PRESETS
+    ]
+    return {"count": len(presets), "language": lang, "presets": presets}
 
 
 @app.post("/api/residency/calculate", response_model=ResidencyResponse)

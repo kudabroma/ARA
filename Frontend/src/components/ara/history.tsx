@@ -13,6 +13,7 @@ import { money, presetInputs } from "@/lib/ara/api";
 import { formGuidance } from "@/lib/ara/form-guidance";
 import type { Key } from "@/lib/ara/i18n";
 import { useAra, type CalculationEntry, type CalculationSource } from "./context";
+import { useEntryLabel } from "./use-demo-presets";
 
 const sourceIcon: Record<CalculationSource, typeof FileText> = {
   form: FileText,
@@ -70,6 +71,7 @@ export function HistoryPanel({
 }) {
   const a = useAra();
   const edit = useEditEntry();
+  const labelOf = useEntryLabel();
   const time = new Intl.DateTimeFormat(a.language, {
     day: "numeric",
     month: "short",
@@ -81,7 +83,8 @@ export function HistoryPanel({
     <aside className="history-panel" aria-label={a.t("history")}>
       <div className="history-head">
         <h2>
-          {a.t("history")} <span className="history-count">{a.history.length}</span>
+          <span>{a.t("history")}</span>
+          <span className="history-count">{a.history.length}</span>
         </h2>
         <Button size="sm" onClick={() => a.setSection("new")}>
           <Plus />
@@ -90,7 +93,7 @@ export function HistoryPanel({
       </div>
       {a.plan === "pro" && a.history.length > 1 && (
         <div className="history-compare">
-          <span>{a.t("compareHint")}</span>
+          <span title={a.t("compareHint")}>{a.t("compareHint")}</span>
           <Button size="sm" variant="outline" disabled={selected.length !== 2} onClick={onCompare}>
             {a.t("compare")}
           </Button>
@@ -104,35 +107,38 @@ export function HistoryPanel({
             const locked = a.plan === "free" && index > 0;
             const { taxes, formBadge } = entrySummary(entry);
             const Icon = sourceIcon[entry.source];
+            const label = labelOf(entry);
+            const isActive = entry.id === activeId;
             const card = (
               <div
-                className={`glass history-card ${entry.id === activeId ? "active" : ""}`}
-                aria-current={entry.id === activeId}
+                className={`glass history-card ${isActive ? "active" : ""}`}
+                aria-current={isActive}
               >
                 <button
                   type="button"
                   className="history-card-main"
                   onClick={() => a.setActiveId(entry.id)}
                   disabled={locked}
+                  title={label}
                 >
                   <span className="history-card-meta">
-                    <Icon size={13} aria-label={a.t(sourceKey[entry.source])} />
+                    <Icon size={14} aria-hidden="true" />
                     <span>{a.t(sourceKey[entry.source])}</span>
-                    <span>·</span>
+                    <span aria-hidden="true">·</span>
                     <time dateTime={new Date(entry.createdAt).toISOString()}>
                       {time.format(entry.createdAt)}
                     </time>
-                    {formBadge && <span className="status-pill ml-auto">{formBadge}</span>}
+                    {formBadge && <span className="status-pill">{formBadge}</span>}
                   </span>
-                  <strong className="history-card-label">{entry.label}</strong>
+                  <strong className="history-card-label">{label}</strong>
                   {typeof taxes.net_tax_owed_or_refund === "number" && (
                     <span className={taxes.is_refund ? "history-refund" : "history-owe"}>
-                      {a.t(taxes.is_refund ? "refund" : "owe")}{" "}
+                      {a.t(taxes.is_refund ? "cardRefund" : "cardOwe")}{" "}
                       {money(Math.abs(taxes.net_tax_owed_or_refund))}
                     </span>
                   )}
                 </button>
-                <div className="history-card-actions">
+                <div className="history-card-footer">
                   {a.plan === "pro" && a.history.length > 1 && (
                     <label className="history-check">
                       <input
@@ -144,19 +150,28 @@ export function HistoryPanel({
                       {a.t("compare")}
                     </label>
                   )}
-                  <Button size="sm" variant="ghost" disabled={locked} onClick={() => edit(entry)}>
-                    <Pencil />
-                    {a.t("editEntry")}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    disabled={locked}
-                    onClick={() => a.removeEntry(entry.id)}
-                  >
-                    <Trash2 />
-                    {a.t("deleteEntry")}
-                  </Button>
+                  <div className="history-card-icons">
+                    <button
+                      type="button"
+                      className="history-icon-btn"
+                      disabled={locked}
+                      onClick={() => edit(entry)}
+                      aria-label={a.t("editEntry")}
+                      title={a.t("editEntry")}
+                    >
+                      <Pencil />
+                    </button>
+                    <button
+                      type="button"
+                      className="history-icon-btn danger"
+                      disabled={locked}
+                      onClick={() => a.removeEntry(entry.id)}
+                      aria-label={a.t("deleteEntry")}
+                      title={a.t("deleteEntry")}
+                    >
+                      <Trash2 />
+                    </button>
+                  </div>
                 </div>
               </div>
             );
@@ -192,6 +207,7 @@ export function CompareTable({
   onClose: () => void;
 }) {
   const a = useAra();
+  const labelOf = useEntryLabel();
   const rows: [Key, (e: CalculationEntry) => string][] = [
     ["compareStatus", (e) => entrySummary(e).residency.status_label || "—"],
     ["yourForm", (e) => entrySummary(e).formBadge || "—"],
@@ -228,7 +244,7 @@ export function CompareTable({
             <tr>
               <th />
               {entries.map((e) => (
-                <th key={e.id}>{e.label}</th>
+                <th key={e.id}>{labelOf(e)}</th>
               ))}
             </tr>
           </thead>

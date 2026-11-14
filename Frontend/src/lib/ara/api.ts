@@ -213,6 +213,14 @@ export function toForm8843Request(
     director_or_dso_phone: text("dso_phone"),
   };
 }
+/** "Form8843_{LastName}_{year}.pdf"; the last name is reduced to filename-safe characters. */
+export function form8843FileName(lastName: string, year: number) {
+  const safe = lastName
+    .normalize("NFKD")
+    .replace(/[^\p{L}\p{N}-]+/gu, "")
+    .slice(0, 40);
+  return safe ? `Form8843_${safe}_${year}.pdf` : `Form8843_${year}.pdf`;
+}
 export function buildBody(input: Inputs, year: number, language: Language) {
   const income = Object.fromEntries(
     Object.entries(input.income)

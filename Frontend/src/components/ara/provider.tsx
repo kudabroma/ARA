@@ -34,6 +34,12 @@ export function AraProvider({ children }: { children: ReactNode }) {
   }, []);
   const active = history.find((e) => e.id === activeId) ?? null;
   const [section, setSection] = useState<Section>("new");
+  const [pendingForm8843, setPendingForm8843] = useState(false);
+  const openForm8843 = useCallback(() => {
+    setPendingForm8843(true);
+    setSection("new");
+  }, []);
+  const clearPendingForm8843 = useCallback(() => setPendingForm8843(false), []);
   const [lock, setLock] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [chatData, setChatData] = useState<Record<string, any>>({});
@@ -75,6 +81,9 @@ export function AraProvider({ children }: { children: ReactNode }) {
         result: active?.response ?? null,
         section,
         setSection,
+        pendingForm8843,
+        openForm8843,
+        clearPendingForm8843,
         lock,
         setLock,
         messages,

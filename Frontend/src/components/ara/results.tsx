@@ -4,7 +4,6 @@ import {
   ChartNoAxesCombined,
   LockKeyhole,
   ArrowRight,
-  Download,
   FileText,
   ExternalLink,
   ShieldCheck,
@@ -440,53 +439,6 @@ function ResultDetail({ entry }: { entry: CalculationEntry }) {
           {a.t("efile")}
         </Button>
         <span className="text-xs text-muted-foreground">{a.t("coming")}</span>
-      </div>
-    </>
-  );
-}
-export function Documents() {
-  const a = useAra();
-  const pdf = a.result?.["form_8843"]?.pdf_base64;
-  const download = () => {
-    if (a.plan !== "pro") {
-      a.setLock(true);
-      return;
-    }
-    if (typeof pdf !== "string") return;
-    const bytes = Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0));
-    const url = URL.createObjectURL(new Blob([bytes], { type: "application/pdf" }));
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `Form-8843-${a.year}.pdf`;
-    link.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-  };
-  return (
-    <>
-      <h1 className="page-heading">{a.t("documents")}</h1>
-      <p className="page-subtitle">Form 8843</p>
-      <div className="glass mt-8 max-w-2xl p-8">
-        <span className="section-icon">
-          <FileText size={22} />
-        </span>
-        <h2 className="mt-5 text-xl font-semibold">Form 8843</h2>
-        <p className="my-5 text-sm leading-7 text-muted-foreground">{a.t("documentHint")}</p>
-        {a.plan === "free" ? (
-          <Button variant="outline" onClick={() => a.setLock(true)}>
-            <LockKeyhole />
-            {a.t("unlock")}
-          </Button>
-        ) : pdf ? (
-          <Button onClick={download}>
-            <Download />
-            {a.t("download")}
-          </Button>
-        ) : (
-          <Button onClick={() => a.setSection("new")}>
-            {a.t("edit")}
-            <ArrowRight />
-          </Button>
-        )}
       </div>
     </>
   );
