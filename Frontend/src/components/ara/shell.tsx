@@ -18,8 +18,8 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { useAra } from "./context";
 import { analyzeAll } from "@/lib/ara/api";
 const nav = [
-  { key: "new", icon: Plus },
   { key: "chat", icon: MessageSquare },
+  { key: "new", icon: Plus },
   { key: "results", icon: ChartNoAxesCombined },
   { key: "documents", icon: Files },
 ] as const;

@@ -17,6 +17,7 @@ from app.schemas import (
     VisaStay,
     dump_model,
 )
+from app import faq
 from app.i18n import normalize_language, tr
 from app.services.residency import calculate_residency
 from app.services.taxes import calculate_taxes
@@ -32,6 +33,8 @@ _SYSTEM_RULES = (
     "Do not recommend or criticize specific commercial tax software or tax preparation "
     "companies by name; if relevant, say neutrally that the user should check that their "
     "software or preparer supports Form 1040-NR. "
+    "Never show raw status codes such as RESIDENT_ALIEN, NONRESIDENT_ALIEN or DUAL_STATUS_ALIEN; "
+    "say 'resident for tax purposes', 'nonresident' or 'dual-status' in the answer language. "
 )
 
 
@@ -53,6 +56,12 @@ def _detect_language(text: str, default: str) -> str:
         re.IGNORECASE,
     ):
         return "es"
+    if re.search(
+        r"\b(hi|hello|hey|how|what|when|why|which|who|is|are|the|you|my|i'm|thanks|tax|taxes)\b",
+        text,
+        re.IGNORECASE,
+    ):
+        return "en"
     return default
 
 
@@ -231,7 +240,8 @@ def generate_explanation(req: ExplainRequest) -> Dict[str, Any]:
 
     text, provider = call_llm(prompt, lang)
     if not text:
-        status = res.get("residency_status", tax.get("residency_status", "RESIDENT_ALIEN"))
+        status_code = res.get("residency_status", tax.get("residency_status", "RESIDENT_ALIEN"))
+        status = status_text(reply_language, status_code, short=True) or res.get("status_label", "")
         w_days = res.get("total_weighted_days", 0)
         c_days = res.get("current_year_countable_days", 0)
         tot_tax = tax.get("total_tax_liability", 0.0)
@@ -258,7 +268,7 @@ def generate_explanation(req: ExplainRequest) -> Dict[str, Any]:
     return {
         "provider": provider,
         "language": reply_language,
-        "explanation_markdown": text,
+        "explanation_markdown": humanize_codes(text, reply_language),
         "disclaimer": tr(reply_language, "explain_disclaimer"),
     }
 
@@ -344,14 +354,269 @@ def _extract_slots(message: str, profile: CollectedTaxProfile) -> CollectedTaxPr
     return profile
 
 
-def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
-    lang = normalize_language(req.language)
-    profile = req.collected_profile or CollectedTaxProfile()
+_STATUS_CODES = ("NONRESIDENT_ALIEN", "DUAL_STATUS_ALIEN", "RESIDENT_ALIEN")
 
-    for msg in req.messages:
-        if msg.role == "user":
-            profile = _extract_slots(msg.content, profile)
 
+def status_text(language: str, status: Optional[str], short: bool = False) -> str:
+    """Human wording for a residency status code; raw codes are never shown to users."""
+    if status not in _STATUS_CODES:
+        return ""
+    return tr(language, f"status_short_{status}" if short else f"status_{status}")
+
+
+def humanize_codes(text: str, language: str) -> str:
+    """Replace any raw status code an LLM may echo with its human wording."""
+    for code in _STATUS_CODES:  # NONRESIDENT/DUAL first so RESIDENT_ALIEN doesn't match inside them
+        text = re.sub(rf"\b{code}\b", status_text(language, code, short=True), text)
+    return text
+
+
+# ---------------------------------------------------------------------------
+# Message analysis (deterministic): split into statement / question clauses.
+# ---------------------------------------------------------------------------
+
+_QUESTION_START = re.compile(
+    r"^(?:(?:and|but|so|also|а|и|но|ну|y|pero|entonces)\s+)?"
+    r"(?:what|what's|whats|how|why|when|where|which|who|whom|do|does|did|is|are|am|can|could|"
+    r"should|would|will|tell me|explain|"
+    r"что|чем|как|почему|зачем|когда|где|какой|какая|какое|какие|какую|каким|кто|сколько|"
+    r"нужно ли|нужна ли|нужен ли|надо ли|можно ли|должен ли|в ч[её]м|объясни|расскажи|"
+    r"qu[eé]|c[oó]mo|por qu[eé]|cu[aá]ndo|d[oó]nde|cu[aá]l|cu[aá]les|qui[eé]n|cu[aá]nto|"
+    r"puedo|debo|tengo que|explica|expl[ií]came)\b",
+    re.IGNORECASE,
+)
+_CLAUSE_SPLIT = re.compile(r"((?<!\d)\.(?!\d)|[!?;\n]+|,(?!\d))")
+
+_SMALL_TALK = {
+    "greeting": re.compile(
+        r"^\W*(hi|hello|hey|hiya|good (morning|afternoon|evening)|привет|здравствуй\w*|добр\w+ (день|утро|вечер)|хай|"
+        r"hola|buen[oa]s( d[ií]as| tardes| noches)?)\b",
+        re.IGNORECASE,
+    ),
+    "how": re.compile(
+        r"how are (you|u)|how's it going|how do you do|как (у )?(тебя |вас )?дела|как поживаешь|как ты\b|"
+        r"c[oó]mo est[aá]s|c[oó]mo est[aá] usted|qu[eé] tal",
+        re.IGNORECASE,
+    ),
+    "thanks": re.compile(r"\b(thanks|thank you|thx|ty)\b|спасибо|благодар|\bgracias\b", re.IGNORECASE),
+    "who": re.compile(
+        r"who are you|what are you|what can you do|кто ты|кто вы|что ты умеешь|что вы умеете|"
+        r"qui[eé]n eres|qu[eé] eres|qu[eé] puedes hacer",
+        re.IGNORECASE,
+    ),
+    "joke": re.compile(r"\bjoke\b|шутк|анекдот|\bchiste\b", re.IGNORECASE),
+}
+_OFF_TOPIC = re.compile(
+    r"weather|forecast|recipe|cook|football|soccer|basketball|movie|film|music|song|python|javascript|"
+    r"write (me )?code|bitcoin|crypto|horoscope|погод|прогноз|рецепт|приготов|футбол|фильм|кино|музык|песн|"
+    r"напиши код|гороскоп|биткоин|clima|qu[eé] tiempo hace|receta|cocinar|f[uú]tbol|pel[ií]cula|m[uú]sica|"
+    r"canci[oó]n|hor[oó]scopo",
+    re.IGNORECASE,
+)
+_TAX_WORDS = re.compile(
+    r"tax|irs|visa|form|refund|deduct|income|wage|resident|налог|виз|форм|возврат|вычет|доход|зарплат|резидент|"
+    r"impuest|formulario|reembolso|deducci|ingreso|salario|residen",
+    re.IGNORECASE,
+)
+
+
+def _split_clauses(message: str) -> Tuple[List[str], List[str]]:
+    """Returns (statement clauses, question clauses)."""
+    parts = _CLAUSE_SPLIT.split(message)
+    statements: List[str] = []
+    questions: List[str] = []
+    for i in range(0, len(parts), 2):
+        clause = parts[i].strip().lstrip("¿¡").strip()
+        if not clause:
+            continue
+        delimiter = parts[i + 1] if i + 1 < len(parts) else ""
+        if "?" in delimiter or _QUESTION_START.match(clause):
+            questions.append(clause)
+        else:
+            statements.append(clause)
+    return statements, questions
+
+
+def _analyze_message(message: str) -> Dict[str, Any]:
+    statements, questions = _split_clauses(message)
+    small_talk = [kind for kind, pattern in _SMALL_TALK.items() if pattern.search(message)]
+    # FAQ topics come from question clauses; a bare keyword message ("FICA") also counts.
+    faq_text = " ".join(questions) or (message if not small_talk else "")
+    topics = faq.find_topics(faq_text) if faq_text else []
+    off_topic = bool(_OFF_TOPIC.search(message)) and not topics
+    if questions and not topics and not small_talk and not _TAX_WORDS.search(" ".join(questions)):
+        off_topic = True
+    return {
+        "statements": statements,
+        "questions": questions,
+        "small_talk": small_talk,
+        "topics": topics,
+        "off_topic": off_topic,
+    }
+
+
+_PROFILE_FIELDS = (
+    "visa_type",
+    "entry_date",
+    "country_of_citizenship",
+    "gross_1099_income",
+    "business_deductions",
+    "w2_wages",
+    "w2_federal_withheld",
+    "w2_fica_withheld",
+)
+
+
+def _extract_from_statements(statements: List[str], profile: CollectedTaxProfile) -> Dict[str, Any]:
+    """Only statement clauses can fill profile fields; questions and small talk never do."""
+    if not statements:
+        return {}
+    before = dump_model(profile)
+    candidate = _extract_slots(" . ".join(statements), CollectedTaxProfile(**before))
+    after = dump_model(candidate)
+    return {k: after[k] for k in _PROFILE_FIELDS if after[k] != before[k]}
+
+
+# ---------------------------------------------------------------------------
+# LLM mode: structured JSON answer, validated before it touches the profile.
+# ---------------------------------------------------------------------------
+
+_CHAT_JSON_RULES = (
+    "Classify the user's latest message and answer it. Rules:\n"
+    "- intent is one of: answer (the user answers a profile question), tax_question (US tax / visa question), "
+    "small_talk (greeting, how are you, thanks, who are you, joke), off_topic (not about US taxes). "
+    "A message can both answer and ask; then use tax_question and still extract the fields.\n"
+    "- Always reply to what the user actually said first: answer tax questions in 2-5 sentences using the "
+    "profile and calculated results, cite official IRS pages (irs.gov) when useful, never invent numbers or "
+    "dates that are not in the provided data; for small talk reply with one friendly sentence; for off-topic "
+    "say politely you only help with US taxes and tax residency.\n"
+    "- extracted_fields: ONLY values the user explicitly stated in the latest message (keys: visa_type, "
+    "entry_date as YYYY-MM-DD, country_of_citizenship, gross_1099_income, business_deductions, w2_wages, "
+    "w2_federal_withheld, w2_fica_withheld). Never guess. Empty object if nothing was stated.\n"
+    "- next_question: if profile fields are still missing after extraction, one short question for the next "
+    "missing field, phrased differently from the previous assistant message; otherwise empty string.\n"
+    "- Never output raw codes like RESIDENT_ALIEN or NONRESIDENT_ALIEN; use plain words.\n"
+    "- suggested_replies: 2-3 short replies the user might send next.\n"
+    'Return ONLY a JSON object: {"intent": "...", "reply": "...", "extracted_fields": {}, '
+    '"next_question": "...", "suggested_replies": []}'
+)
+_INTENTS = {"answer", "tax_question", "small_talk", "off_topic"}
+
+
+def _parse_json_object(text: str) -> Optional[Dict[str, Any]]:
+    match = re.search(r"\{.*\}", text, re.DOTALL)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except ValueError:
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _number_evidence(value: float, message: str) -> bool:
+    digits = re.sub(r"[,\s]", "", message.lower())
+    plain = f"{value:.2f}".rstrip("0").rstrip(".")
+    if plain in digits:
+        return True
+    if value >= 1000 and value % 1000 == 0 and re.search(rf"\b{int(value // 1000)}\s*(k|к|тыс)", message.lower()):
+        return True
+    return value == 0 and bool(re.search(r"\b0\b|no income|нет дохода|sin ingresos|no expenses|нет расходов", message.lower()))
+
+
+def _validated_fields(raw: Any, message: str) -> Dict[str, Any]:
+    """Keep only well-typed fields that are actually present in the user's message."""
+    if not isinstance(raw, dict):
+        return {}
+    out: Dict[str, Any] = {}
+    low = message.lower()
+    for key, value in raw.items():
+        if key not in _PROFILE_FIELDS or value in (None, ""):
+            continue
+        if key in ("visa_type", "country_of_citizenship"):
+            if isinstance(value, str) and re.sub(r"[^a-z0-9]", "", value.lower())[:3] in re.sub(r"[^a-z0-9а-яё]", "", low):
+                out[key] = value.strip()
+        elif key == "entry_date":
+            if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value) and value[:4] in message:
+                out[key] = value
+        else:
+            try:
+                number = float(value)
+            except (TypeError, ValueError):
+                continue
+            if number >= 0 and _number_evidence(number, message):
+                out[key] = number
+    return out
+
+
+# ---------------------------------------------------------------------------
+# Deterministic reply building.
+# ---------------------------------------------------------------------------
+
+
+def _next_question_key(missing: List[str]) -> Optional[str]:
+    for field, key in (
+        ("visa_type", "visa"),
+        ("entry_date", "entry"),
+        ("income_sources", "income"),
+        ("business_deductions", "deductions"),
+    ):
+        if field in missing:
+            return key
+    return None
+
+
+def _question_variants(
+    language: str, key: str, profile: CollectedTaxProfile, status: Optional[str], with_ack: bool
+) -> List[str]:
+    values = {
+        "visa": profile.visa_type or "",
+        "income": profile.gross_1099_income or 0.0,
+        "status": status_text(language, status) or status_text(language, "NONRESIDENT_ALIEN"),
+    }
+    variants = [tr(language, f"chat_q_{key}_{i}", **values) for i in (1, 2, 3)]
+    if with_ack:
+        # The original acknowledging phrasings come first right after the user answered a question.
+        legacy = {
+            "visa": tr(language, "chat_ask_visa"),
+            "entry": tr(language, "chat_ask_entry", visa=values["visa"]),
+            "income": tr(language, "chat_ask_income", status=values["status"]),
+            "deductions": tr(language, "chat_ask_deductions", income=values["income"]),
+        }[key]
+        variants.insert(0, legacy)
+    return variants
+
+
+def _pick_fresh(variants: List[str], previous_reply: str) -> str:
+    """First phrasing that the previous assistant message did not already use."""
+    for variant in variants:
+        if variant not in previous_reply:
+            return variant
+    return variants[-1]
+
+
+def _chips(language: str, missing: List[str]) -> List[str]:
+    if "visa_type" in missing:
+        return [tr(language, f"chat_visa_{i}") for i in range(1, 6)]
+    if "entry_date" in missing:
+        return [tr(language, f"chat_entry_{i}") for i in range(1, 4)]
+    if "income_sources" in missing:
+        return [tr(language, f"chat_income_{i}") for i in range(1, 4)]
+    if "business_deductions" in missing:
+        return [tr(language, f"chat_deduction_{i}") for i in range(1, 4)]
+    return [tr(language, f"chat_complete_{i}") for i in range(1, 4)]
+
+
+def _small_talk_reply(language: str, kinds: List[str]) -> str:
+    order = ["greeting", "how", "thanks", "who", "joke"]
+    picked = [k for k in order if k in kinds]
+    if "how" in picked and "greeting" in picked:
+        picked.remove("greeting")
+        return f"{tr(language, 'smalltalk_greeting')} {' '.join(tr(language, f'smalltalk_{k}') for k in picked)}"
+    return " ".join(tr(language, f"smalltalk_{k}") for k in picked)
+
+
+def _missing_fields(profile: CollectedTaxProfile) -> List[str]:
     missing: List[str] = []
     if not profile.visa_type:
         missing.append("visa_type")
@@ -361,108 +626,162 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
         missing.append("income_sources")
     if profile.gross_1099_income and profile.gross_1099_income > 0 and profile.business_deductions is None:
         missing.append("business_deductions")
+    return missing
 
-    last_msg = req.messages[-1].content if req.messages else ""
-    reply_language = _detect_language(last_msg, lang)
+
+def _live_calculation(profile: CollectedTaxProfile, lang: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
     live_res: Optional[Dict[str, Any]] = None
     live_tax: Optional[Dict[str, Any]] = None
-
-    if profile.visa_type:
-        entry_dt = profile.entry_date or f"{profile.tax_year - 2}-08-20"
-        entry_yr = int(entry_dt[:4])
-        stays = [
-            VisaStay(
-                visa_type=profile.visa_type,
-                entry_date=entry_dt if y == entry_yr else f"{y}-01-01",
-                exit_date=f"{y}-12-31",
-            )
-            for y in range(max(entry_yr, profile.tax_year - 2), profile.tax_year + 1)
-        ]
-        res_obj = calculate_residency(
-            ResidencyRequest(
+    if not profile.visa_type:
+        return live_res, live_tax
+    entry_dt = profile.entry_date or f"{profile.tax_year - 2}-08-20"
+    entry_yr = int(entry_dt[:4])
+    stays = [
+        VisaStay(
+            visa_type=profile.visa_type,
+            entry_date=entry_dt if y == entry_yr else f"{y}-01-01",
+            exit_date=f"{y}-12-31",
+        )
+        for y in range(max(entry_yr, profile.tax_year - 2), profile.tax_year + 1)
+    ]
+    res_obj = calculate_residency(
+        ResidencyRequest(
+            tax_year=profile.tax_year,
+            stays=stays,
+            prior_exempt_calendar_years=list(range(entry_yr, profile.tax_year - 2)),
+            country_of_citizenship=profile.country_of_citizenship or "Kazakhstan",
+            language=lang,
+        )
+    )
+    live_res = dump_model(res_obj)
+    if profile.gross_1099_income is not None or profile.w2_wages is not None:
+        tax_obj = calculate_taxes(
+            TaxCalculationRequest(
                 tax_year=profile.tax_year,
-                stays=stays,
-                prior_exempt_calendar_years=list(range(entry_yr, profile.tax_year - 2)),
+                filing_status="single",
+                residency_status=res_obj.residency_status,
+                visa_type=profile.visa_type,
                 country_of_citizenship=profile.country_of_citizenship or "Kazakhstan",
+                gross_1099_income=profile.gross_1099_income or 0.0,
+                business_deductions=profile.business_deductions or 0.0,
+                w2_wages=profile.w2_wages or 0.0,
+                w2_federal_withheld=profile.w2_federal_withheld or 0.0,
+                w2_fica_withheld=profile.w2_fica_withheld or 0.0,
                 language=lang,
             )
         )
-        live_res = dump_model(res_obj)
+        live_tax = dump_model(tax_obj)
+    return live_res, live_tax
 
-        if profile.gross_1099_income is not None or profile.w2_wages is not None:
-            tax_obj = calculate_taxes(
-                TaxCalculationRequest(
-                    tax_year=profile.tax_year,
-                    filing_status="single",
-                    residency_status=res_obj.residency_status,
-                    visa_type=profile.visa_type,
-                    country_of_citizenship=profile.country_of_citizenship or "Kazakhstan",
-                    gross_1099_income=profile.gross_1099_income or 0.0,
-                    business_deductions=profile.business_deductions or 0.0,
-                    w2_wages=profile.w2_wages or 0.0,
-                    w2_federal_withheld=profile.w2_federal_withheld or 0.0,
-                    w2_fica_withheld=profile.w2_fica_withheld or 0.0,
-                    language=lang,
-                )
-            )
-            live_tax = dump_model(tax_obj)
 
+def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
+    lang = normalize_language(req.language)
+    profile = req.collected_profile or CollectedTaxProfile()
+    user_messages = [m.content for m in req.messages if m.role == "user"]
+    last_msg = user_messages[-1] if user_messages else ""
+    previous_reply = next((m.content for m in reversed(req.messages) if m.role == "assistant"), "")
+    reply_language = _detect_language(last_msg, lang)
+    analysis = _analyze_message(last_msg)
+
+    # ---- 1. Try the LLM (structured JSON). Its fields are validated against the message text.
+    missing_before = _missing_fields(profile)
+    live_res_before, live_tax_before = _live_calculation(profile, lang)
     prompt = (
-        f"You are ARATax AI. {_language_instruction(lang)}\n"
+        f"You are ARATax AI. {_language_instruction(reply_language)}\n{_CHAT_JSON_RULES}\n"
+        f"Previous assistant message: {previous_reply}\n"
         f"User message: {last_msg}\n"
-        f"Profile: {json.dumps(dump_model(profile), ensure_ascii=False)}\n"
-        f"Missing fields: {missing}\n"
-        f"Calculated Residency: {json.dumps(live_res, ensure_ascii=False)}\n"
-        f"Calculated Taxes: {json.dumps(live_tax, ensure_ascii=False)}\n"
-        f"Reply in 2-3 concise sentences. If fields are missing, ask for the first one. "
-        f"Otherwise summarize the result. Use the user's latest-message language if it differs "
-        f"from the selected language."
+        f"Profile so far: {json.dumps(dump_model(profile), ensure_ascii=False)}\n"
+        f"Missing fields: {missing_before}\n"
+        f"Calculated residency: {json.dumps(live_res_before, ensure_ascii=False)}\n"
+        f"Calculated taxes: {json.dumps(live_tax_before, ensure_ascii=False)}"
     )
-    reply, provider = call_llm(prompt, lang)
-
-    if not reply:
-        if "visa_type" in missing:
-            reply = tr(reply_language, "chat_ask_visa")
-        elif "entry_date" in missing:
-            reply = tr(reply_language, "chat_ask_entry", visa=profile.visa_type)
-        elif "income_sources" in missing:
-            st = live_res["residency_status"] if live_res else "NONRESIDENT_ALIEN"
-            reply = tr(reply_language, "chat_ask_income", status=st)
-        elif "business_deductions" in missing:
-            reply = tr(
-                reply_language,
-                "chat_ask_deductions",
-                income=profile.gross_1099_income or 0.0,
-            )
-        else:
-            tot = live_tax["total_tax_liability"] if live_tax else 0.0
-            saved = live_tax["Deduction_tax_savings_usd"] if live_tax else 0.0
-            st = live_res["residency_status"] if live_res else "NONRESIDENT_ALIEN"
-            reply = tr(
-                reply_language,
-                "chat_done",
-                status=st,
-                tax=tot,
-                saved=saved,
-            )
-
-    if "visa_type" in missing:
-        chips = [tr(reply_language, f"chat_visa_{i}") for i in range(1, 6)]
-    elif "entry_date" in missing:
-        chips = [tr(reply_language, f"chat_entry_{i}") for i in range(1, 4)]
-    elif "income_sources" in missing:
-        chips = [tr(reply_language, f"chat_income_{i}") for i in range(1, 4)]
-    elif "business_deductions" in missing:
-        chips = [tr(reply_language, f"chat_deduction_{i}") for i in range(1, 4)]
+    raw_reply, provider = call_llm(prompt, lang)
+    llm = _parse_json_object(raw_reply) if raw_reply else None
+    if llm and isinstance(llm.get("reply"), str) and llm["reply"].strip():
+        intent = llm.get("intent") if llm.get("intent") in _INTENTS else "tax_question"
+        extracted = _validated_fields(llm.get("extracted_fields"), last_msg)
     else:
-        chips = [tr(reply_language, f"chat_complete_{i}") for i in range(1, 4)]
+        llm = None
+        if raw_reply:
+            provider = "deterministic-fallback"
+        extracted = _extract_from_statements(analysis["statements"], profile)
+        if extracted and not analysis["questions"]:
+            analysis["topics"] = []  # "I paid $3,000 FICA" is an answer, not a FICA question
+        intent = (
+            "tax_question" if analysis["topics"]
+            else "small_talk" if analysis["small_talk"]
+            else "off_topic" if analysis["off_topic"]
+            else "answer" if extracted
+            else "unknown"
+        )
+
+    for key, value in extracted.items():
+        setattr(profile, key, value)
+
+    missing = _missing_fields(profile)
+    is_complete = not missing
+    live_res, live_tax = _live_calculation(profile, lang)
+    status = (live_res or {}).get("residency_status")
+    question_key = _next_question_key(missing)
+
+    # ---- 2. Build the reply: answer what was said first, then return to the questionnaire.
+    if llm:
+        parts = [humanize_codes(llm["reply"].strip(), reply_language)]
+        if not is_complete:
+            llm_question = llm.get("next_question") if isinstance(llm.get("next_question"), str) else ""
+            question = humanize_codes(llm_question.strip(), reply_language) or _pick_fresh(
+                _question_variants(reply_language, question_key, profile, status, with_ack=False), previous_reply
+            )
+            if question not in parts[0]:
+                parts.append(question)
+        elif intent != "answer":
+            parts.append(tr(reply_language, "chat_complete_hint"))
+        chips = llm.get("suggested_replies")
+        if not (isinstance(chips, list) and chips and all(isinstance(c, str) for c in chips)):
+            chips = _chips(reply_language, missing)
+        chips = chips[:5]
+    else:
+        only_answer = intent == "answer"
+        parts = []
+        if analysis["small_talk"]:
+            parts.append(_small_talk_reply(reply_language, analysis["small_talk"]))
+        for topic in analysis["topics"][:1]:
+            parts.append(
+                faq.answer(topic, reply_language, profile.tax_year, status, status_text(reply_language, status))
+            )
+        if analysis["off_topic"]:
+            parts.append(tr(reply_language, "chat_off_topic"))
+        if intent == "unknown":
+            parts.append(tr(reply_language, "chat_unknown"))
+        if extracted and not only_answer:
+            parts.append(tr(reply_language, "chat_saved"))
+
+        if is_complete:
+            if only_answer or not parts:
+                tot = live_tax["total_tax_liability"] if live_tax else 0.0
+                saved = live_tax["Deduction_tax_savings_usd"] if live_tax else 0.0
+                parts.append(
+                    tr(reply_language, "chat_done", status=status_text(reply_language, status), tax=tot, saved=saved)
+                )
+            else:
+                parts.append(tr(reply_language, "chat_complete_hint"))
+        else:
+            variants = _question_variants(reply_language, question_key, profile, status, with_ack=only_answer)
+            question = _pick_fresh(variants, previous_reply)
+            if analysis["topics"] or analysis["off_topic"]:
+                question = f"{tr(reply_language, 'chat_transition')} {question}"
+            parts.append(question)
+        chips = _chips(reply_language, missing)
+
+    reply = "\n\n".join(p for p in parts if p)
 
     return {
         "reply": reply,
         "provider": provider,
+        "intent": intent,
         "collected_profile": dump_model(profile),
         "missing_fields": missing,
-        "is_complete": len(missing) == 0,
+        "is_complete": is_complete,
         "suggested_replies": chips,
         "live_calculation": {
             "residency": live_res,

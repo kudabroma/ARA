@@ -33,7 +33,7 @@ export function AraProvider({ children }: { children: ReactNode }) {
     });
   }, []);
   const active = history.find((e) => e.id === activeId) ?? null;
-  const [section, setSection] = useState<Section>("new");
+  const [section, setSection] = useState<Section>("chat");
   const [pendingForm8843, setPendingForm8843] = useState(false);
   const openForm8843 = useCallback(() => {
     setPendingForm8843(true);

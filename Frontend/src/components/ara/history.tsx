@@ -5,6 +5,7 @@ import {
   Pencil,
   Trash2,
   Plus,
+  ChartNoAxesCombined,
   LockKeyhole,
   X,
 } from "lucide-react";
@@ -100,7 +101,11 @@ export function HistoryPanel({
         </div>
       )}
       {a.history.length === 0 ? (
-        <p className="history-empty">{a.t("historyEmpty")}</p>
+        <div className="history-empty">
+          <ChartNoAxesCombined size={20} aria-hidden="true" />
+          <p className="font-medium text-foreground">{a.t("noResults")}</p>
+          <p>{a.t("noResultsHint")}</p>
+        </div>
       ) : (
         <ul className="history-list">
           {a.history.map((entry, index) => {

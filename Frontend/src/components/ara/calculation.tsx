@@ -179,16 +179,7 @@ export function Calculation() {
   );
   return (
     <>
-      <div className="mb-7 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div className="mb-3 flex items-center gap-2 text-[11px] font-medium text-accent-foreground">
-            <span className="size-1.5 rounded-full bg-primary" />
-            {a.t("ready")}
-          </div>
-          <h1 className="page-heading">{a.t("title")}</h1>
-          <p className="page-subtitle">{a.t("subtitle")}</p>
-        </div>
-      </div>
+      <h1 className="page-heading mb-7">{a.t("new")}</h1>
       <div className="workspace-grid">
         <div>
           <div className="flex items-center justify-between">

@@ -1,7 +1,6 @@
 import { useState, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import {
-  ChartNoAxesCombined,
   LockKeyhole,
   ArrowRight,
   FileText,
@@ -97,26 +96,15 @@ export function Results() {
           }
           onCompare={() => setComparing(true)}
         />
-        <div className="min-w-0">
-          {comparing && a.plan === "pro" && compared.length === 2 && (
-            <CompareTable entries={compared} onClose={() => setComparing(false)} />
-          )}
-          {shown ? (
+        {/* With an empty history only the history column (and its empty state) is shown. */}
+        {shown && (
+          <div className="min-w-0">
+            {comparing && a.plan === "pro" && compared.length === 2 && (
+              <CompareTable entries={compared} onClose={() => setComparing(false)} />
+            )}
             <ResultDetail entry={shown} />
-          ) : (
-            <div className="empty-view">
-              <span className="empty-icon">
-                <ChartNoAxesCombined size={30} />
-              </span>
-              <h2>{a.t("empty")}</h2>
-              <p>{a.t("emptyHint")}</p>
-              <Button onClick={() => a.setSection("new")}>
-                {a.t("new")}
-                <ArrowRight />
-              </Button>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </>
   );
