@@ -5,7 +5,7 @@ import { AraContext, type Section, type Message } from "./context";
 export function AraProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>("en");
   const [year, setYear] = useState(2025);
-  const [plan, setPlan] = useState<"free" | "pro">("free");
+  const [plan, setPlan] = useState<"free" | "pro">("pro");
   const [inputs, setInputs] = useState<Inputs>(initialInputs);
   const [result, setResult] = useState<Record<string, any> | null>(null);
   const [section, setSection] = useState<Section>("new");
@@ -14,6 +14,9 @@ export function AraProvider({ children }: { children: ReactNode }) {
   const [chatData, setChatData] = useState<Record<string, any>>({});
   const [sent, setSent] = useState(0);
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("plan") === "free") {
+      setPlan("free");
+    }
     try {
       const l = localStorage.getItem("ara-language");
       if (l === "en" || l === "ru" || l === "es") setLanguageState(l);

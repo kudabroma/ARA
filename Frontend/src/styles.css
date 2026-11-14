@@ -756,8 +756,10 @@ textarea {
 @media (max-width: 760px) {
   .ara-header {
     padding: 0 18px;
-    height: 66px;
+    height: auto;
+    min-height: 66px;
     gap: 10px;
+    flex-wrap: wrap;
   }
   .ara-logo {
     font-size: 22px;
@@ -856,12 +858,14 @@ textarea {
   .stat-grid {
     grid-template-columns: 1fr 1fr;
   }
-  .header-year-label,
-  .header-upgrade {
+  .header-year-label {
     display: none;
   }
   .header-controls {
     gap: 8px;
+    flex: 1 1 100%;
+    justify-content: flex-end;
+    flex-wrap: wrap;
   }
   .plan-list {
     min-height: 0;

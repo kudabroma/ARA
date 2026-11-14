@@ -41,7 +41,7 @@ export function Plans() {
         </section>
         <section className="glass plan-card pro-plan">
           <span className="absolute right-5 top-5 rounded-full bg-accent px-3 py-1 text-[10px] font-medium text-accent-foreground">
-            {a.t("popular")}
+            {a.plan === "pro" ? a.t("currentPlan") : a.t("popular")}
           </span>
           <h2 className="flex items-center gap-2">
             <Sparkles size={19} className="text-primary" />
@@ -58,12 +58,18 @@ export function Plans() {
               </li>
             ))}
           </ul>
-          <Button asChild className="w-full">
-            <Link to="/checkout">
-              {a.t("upgrade")}
-              <ArrowRight />
-            </Link>
-          </Button>
+          {a.plan === "pro" ? (
+            <Button className="w-full" disabled>
+              {a.t("youreOnPro")}
+            </Button>
+          ) : (
+            <Button asChild className="w-full">
+              <Link to="/checkout">
+                {a.t("upgradeToPro")}
+                <ArrowRight />
+              </Link>
+            </Button>
+          )}
         </section>
       </div>
       <p className="mt-7 text-center text-xs text-muted-foreground">{a.t("formSaved")}</p>

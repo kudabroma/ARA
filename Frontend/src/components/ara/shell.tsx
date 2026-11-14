@@ -37,7 +37,7 @@ export function AraShell({ children }: { children: ReactNode }) {
             {a.t("workspace")}
           </span>
         </Link>
-        <div className="flex items-center gap-2 text-xs">
+        <div className="header-year flex items-center gap-2 text-xs">
           <span className="header-year-label text-muted-foreground">{a.t("year")}</span>
           <select
             aria-label={a.t("year")}
@@ -60,6 +60,33 @@ export function AraShell({ children }: { children: ReactNode }) {
             <option value="ru">RU</option>
             <option value="es">ES</option>
           </select>
+          <div
+            className="glass flex items-center gap-1 rounded-full px-2 py-1"
+            role="group"
+            aria-label={a.t("demoMode")}
+          >
+            <span className="mr-1 text-[10px] text-muted-foreground">{a.t("demoMode")}</span>
+            <button
+              type="button"
+              aria-pressed={a.plan === "pro"}
+              className={`rounded-full px-2 py-1 text-[10px] transition-colors ${
+                a.plan === "pro" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+              }`}
+              onClick={() => a.setPlan("pro")}
+            >
+              {a.t("demoPro")}
+            </button>
+            <button
+              type="button"
+              aria-pressed={a.plan === "free"}
+              className={`rounded-full px-2 py-1 text-[10px] transition-colors ${
+                a.plan === "free" ? "bg-primary text-primary-foreground" : "text-muted-foreground"
+              }`}
+              onClick={() => a.setPlan("free")}
+            >
+              {a.t("demoFree")}
+            </button>
+          </div>
           <span className="rounded-md bg-muted px-2 py-1 text-[10px] text-muted-foreground">
             {a.t(a.plan)}
           </span>
