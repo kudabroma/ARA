@@ -8,7 +8,7 @@ ARATax is an AI-assisted tax workspace for US freelancers on 1099 and immigrants
 - Paywall demo: https://aratax-seven.vercel.app/?plan=free
 - API docs: https://ara-api-orpin.vercel.app/docs
 
-Built in 24 hours for Zimran Business Cup 2026. Track: Money.
+Built in 24 hours by team **Perditurus** for Zimran Business Cup 2026. Track: Money.
 
 ---
 
@@ -227,7 +227,7 @@ Two Vercel projects from this repository:
 
 **Retention:** quarterly payments four times a year, a filing every year, and new questions with every visa change.
 
-## 11. Team
+## 11. Team Perditurus
 
 | Name | Role |
 |---|---|
