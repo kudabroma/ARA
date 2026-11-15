@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import {
   ArrowUpRight,
   Plus,
   MessageSquare,
+  MessageSquareText,
   ChartNoAxesCombined,
   Files,
   Sparkles,
@@ -131,22 +132,60 @@ export function AraShell({ children }: { children: ReactNode }) {
         <aside className="ara-sidebar">
           <p className="sidebar-label">{a.t("workspace")}</p>
           <nav>
-            {nav.map(({ key, icon: Icon }) => (
-              <Button
-                key={key}
-                variant="ghost"
-                asChild
-                className={`nav-item ${path === "/" && a.section === key ? "active" : ""}`}
-              >
-                <Link to="/" activeProps={{ className: "" }} onClick={() => a.setSection(key)}>
-                  <Icon size={17} />
-                  <span>{a.t(key)}</span>
-                  {key === "documents" && a.plan === "free" && (
-                    <LockKeyhole className="nav-lock ml-auto size-3 opacity-50" />
-                  )}
-                </Link>
-              </Button>
-            ))}
+            {nav.map(({ key, icon: Icon }) => {
+              const isActive = path === "/" && a.section === key;
+              // The chat is the main feature: always highlighted as an "AI" item, solid when open.
+              if (key === "chat")
+                return (
+                  <Fragment key={key}>
+                    <Button
+                      variant="ghost"
+                      asChild
+                      className={`nav-item nav-ai ${isActive ? "active" : ""}`}
+                    >
+                      <Link
+                        to="/"
+                        activeProps={{ className: "" }}
+                        onClick={() => a.setSection(key)}
+                        aria-label={a.t("aiChat")}
+                        title={a.t("aiChat")}
+                        aria-current={isActive ? "page" : undefined}
+                      >
+                        <span className="nav-ai-icon" aria-hidden="true">
+                          <MessageSquareText size={17} />
+                          <Sparkles size={9} className="nav-ai-spark" />
+                        </span>
+                        <span>{a.t(key)}</span>
+                        <span className="nav-ai-badge" aria-hidden="true">
+                          AI
+                        </span>
+                      </Link>
+                    </Button>
+                    <div className="nav-divider" aria-hidden="true" />
+                  </Fragment>
+                );
+              return (
+                <Button
+                  key={key}
+                  variant="ghost"
+                  asChild
+                  className={`nav-item ${isActive ? "active" : ""}`}
+                >
+                  <Link
+                    to="/"
+                    activeProps={{ className: "" }}
+                    onClick={() => a.setSection(key)}
+                    aria-current={isActive ? "page" : undefined}
+                  >
+                    <Icon size={17} />
+                    <span>{a.t(key)}</span>
+                    {key === "documents" && a.plan === "free" && (
+                      <LockKeyhole className="nav-lock ml-auto size-3 opacity-50" />
+                    )}
+                  </Link>
+                </Button>
+              );
+            })}
             <Button
               asChild
               variant="ghost"

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { initialInputs, validateInputs } from "@/lib/ara/api";
+import { initialInputs, validateInputs, type Inputs } from "@/lib/ara/api";
 
 const today = new Date("2026-11-15T12:00:00Z");
 const filled = {
@@ -9,7 +9,7 @@ const filled = {
   stays: [{ visa_type: "OPT", entry_date: "2024-08-20", exit_date: "" }],
   income: { w2_wages: "45000" },
 };
-const fields = (input: typeof filled) =>
+const fields = (input: Inputs) =>
   validateInputs(input, today).map((e) => `${e.field}:${e.message}`);
 
 describe("New calculation form validation", () => {
