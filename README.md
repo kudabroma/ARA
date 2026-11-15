@@ -227,26 +227,7 @@ Two Vercel projects from this repository:
 
 **Retention:** quarterly payments four times a year, a filing every year, and new questions with every visa change.
 
-## 11. Limitations and roadmap
-
-**Limitations**
-
-- Federal taxes only, tax years 2025-2026.
-- No e-file: it requires an IRS Authorized e-file Provider; planned via a partner.
-- Checkout is test mode only; no real payments.
-- No data is stored between sessions.
-- Transaction categorization is rule-based.
-
-**Roadmap**
-
-- State taxes
-- E-file through a partner
-- Live Stripe payments
-- Bank account sync
-- AI-assisted transaction categorization
-- Tax treaty benefits by country
-
-## 12. Team
+## 11. Team
 
 | Name | Role |
 |---|---|
@@ -254,6 +235,6 @@ Two Vercel projects from this repository:
 | Ali Abylgazi | Backend Engineer, QA Engineer |
 | Assanali Matayev | UI/UX Designer, Product Manager |
 
-## 13. Disclaimer
+## 12. Disclaimer
 
 ARATax provides estimates for informational purposes only and is not a substitute for advice from a licensed tax professional. Not affiliated with the IRS.
