@@ -84,8 +84,18 @@ def get_demo_presets(language: str = "en") -> Dict[str, Any]:
     return {"count": len(presets), "language": lang, "presets": presets}
 
 
+NO_STAYS_DETAIL = "At least one US stay with an entry date is required"
+
+
+def _require_stays(residency: ResidencyRequest) -> None:
+    """No residency status without at least one stay (VisaStay already requires a valid entry_date)."""
+    if not residency.stays or not all(s.entry_date for s in residency.stays):
+        raise HTTPException(status_code=422, detail=NO_STAYS_DETAIL)
+
+
 @app.post("/api/residency/calculate", response_model=ResidencyResponse)
 def residency_endpoint(req: ResidencyRequest) -> ResidencyResponse:
+    _require_stays(req)
     try:
         return calculate_residency(req)
     except Exception as exc:
@@ -146,6 +156,7 @@ def chat_endpoint(req: ChatAgentRequest) -> Dict[str, Any]:
 
 @app.post("/api/analyze-all")
 def analyze_all_endpoint(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
+    _require_stays(req.residency)
     try:
         return _analyze_all(req)
     except ValueError as exc:

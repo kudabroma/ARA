@@ -139,6 +139,8 @@ export type Inputs = {
   manual: { date: string; description: string; amount: string }[];
   transactionMode: "csv" | "manual";
   profile: Record<string, string | boolean>;
+  /** Explicit "I had no income this year". */
+  noIncome: boolean;
 };
 export const initialInputs: Inputs = {
   visa: "OPT",
@@ -152,6 +154,7 @@ export const initialInputs: Inputs = {
   manual: [],
   transactionMode: "csv",
   profile: {},
+  noIncome: false,
 };
 export type Form8843Payload = {
   tax_year: number;
@@ -324,6 +327,51 @@ export function form8843FileName(lastName: string, year: number) {
     .replace(/[^\p{L}\p{N}-]+/gu, "")
     .slice(0, 40);
   return safe ? `Form8843_${safe}_${year}.pdf` : `Form8843_${year}.pdf`;
+}
+/** One form validation problem: `field` is the input key, `message` an i18n key. */
+export type FormError = {
+  field: string;
+  message:
+    | "errVisa"
+    | "errCountry"
+    | "errStays"
+    | "errEntry"
+    | "errEntryFuture"
+    | "errEntryAfterExit"
+    | "errIncome";
+};
+const INCOME_FIELDS = ["w2_wages", "gross_1099_income"] as const;
+/** Bank statement with at least one positive amount counts as income information. */
+const statementHasIncome = (input: Inputs) =>
+  input.transactionMode === "csv"
+    ? input.csv
+        .split(/\r?\n/)
+        .slice(1)
+        .some((line) => Number(line.split(",").pop()) > 0)
+    : input.manual.some((t) => Number(t.amount) > 0);
+
+/**
+ * Required fields of the "New calculation" form. Nothing is sent to analyze-all while this
+ * returns errors, so an empty form never produces a tax result or a history entry.
+ */
+export function validateInputs(input: Inputs, today = new Date()): FormError[] {
+  const errors: FormError[] = [];
+  const todayIso = today.toISOString().slice(0, 10);
+  if (!input.visa.trim()) errors.push({ field: "visa", message: "errVisa" });
+  if (!input.country.trim()) errors.push({ field: "country", message: "errCountry" });
+  if (!input.stays.length) errors.push({ field: "stays", message: "errStays" });
+  input.stays.forEach((stay, i) => {
+    if (!stay.visa_type.trim()) errors.push({ field: `stays.${i}.visa_type`, message: "errVisa" });
+    if (!stay.entry_date) errors.push({ field: `stays.${i}.entry_date`, message: "errEntry" });
+    else if (stay.entry_date > todayIso)
+      errors.push({ field: `stays.${i}.entry_date`, message: "errEntryFuture" });
+    else if (stay.exit_date && stay.entry_date > stay.exit_date)
+      errors.push({ field: `stays.${i}.entry_date`, message: "errEntryAfterExit" });
+  });
+  const hasIncome =
+    INCOME_FIELDS.some((k) => Number(input.income[k]) > 0) || statementHasIncome(input);
+  if (!hasIncome && !input.noIncome) errors.push({ field: "income", message: "errIncome" });
+  return errors;
 }
 export function buildBody(input: Inputs, year: number, language: Language) {
   const income = Object.fromEntries(

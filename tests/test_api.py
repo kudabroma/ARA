@@ -79,7 +79,10 @@ def test_default_tax_year_is_2026_everywhere():
     res = client.post("/api/analyze-all", json={"residency": {"stays": [{"visa_type": "H-1B", "entry_date": "2026-01-01"}]}})
     assert res.json()["residency"]["tax_year"] == 2026
     # 2025 is still accepted when asked for explicitly
-    res = client.post("/api/analyze-all", json={"residency": {"tax_year": 2025, "stays": []}})
+    res = client.post(
+        "/api/analyze-all",
+        json={"residency": {"tax_year": 2025, "stays": [{"visa_type": "H-1B", "entry_date": "2025-01-01"}]}},
+    )
     assert res.json()["residency"]["tax_year"] == 2025
 
 
@@ -104,6 +107,29 @@ def test_demo_presets_are_2026_and_keep_their_conclusions():
     case3 = results["digital_nomad_1099_contractor"]
     assert case3["residency"]["residency_status"] == "RESIDENT_ALIEN"
     assert case3["taxes"]["self_employment_tax"] > 0
+
+
+@pytest.mark.parametrize("path", ["/api/analyze-all", "/api/residency/calculate"])
+@pytest.mark.parametrize(
+    "residency",
+    [{}, {"stays": []}, {"stays": [{"visa_type": "F-1", "entry_date": ""}]}, {"stays": [{"visa_type": "F-1"}]}],
+)
+def test_no_stay_with_entry_date_is_rejected(path, residency):
+    body = {"residency": residency} if path.endswith("analyze-all") else residency
+    res = client.post(path, json=body)
+    assert res.status_code == 422
+    assert "residency_status" not in res.text
+
+
+def test_empty_residency_gives_clear_422():
+    res = client.post("/api/analyze-all", json={"residency": {}})
+    assert res.status_code == 422
+    assert res.json()["detail"] == "At least one US stay with an entry date is required"
+
+
+def test_demo_presets_still_pass_validation():
+    for preset in client.get("/api/demo-presets").json()["presets"]:
+        assert client.post("/api/analyze-all", json=preset["payload"]).status_code == 200
 
 
 def test_analyze_all_and_pdf():

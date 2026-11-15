@@ -27,11 +27,15 @@ import {
   calculationLabel,
   cleanPayload,
   presetInputs,
+  validateInputs,
+  type FormError,
   type Inputs,
   TAX_YEAR,
 } from "@/lib/ara/api";
 import { useDemoPresets } from "./use-demo-presets";
 import type { Key } from "@/lib/ara/i18n";
+/** Backend 422 detail when no stay with an entry date was sent. */
+const NO_STAYS_DETAIL = "At least one US stay with an entry date is required";
 const visas = ["F-1", "OPT", "J-1", "H-1B", "O-1", "L-1", "Other"];
 const incomeKeys = [
   "w2_wages",
@@ -106,6 +110,14 @@ function Section({
     </section>
   );
 }
+function Required() {
+  const a = useAra();
+  return (
+    <span className="required-mark" aria-label={a.t("requiredMark")} title={a.t("requiredMark")}>
+      *
+    </span>
+  );
+}
 export function Calculation() {
   const a = useAra();
   const [busy, setBusy] = useState(false);
@@ -129,6 +141,30 @@ export function Calculation() {
   const items = presets.items;
   const update = (patch: Partial<Inputs>) => a.setInputs((prev) => ({ ...prev, ...patch }));
   const invalid = (key: string) => error?.fields.some((f) => f.endsWith(key)) || false;
+  // Client-side required fields: shown after the first submit, update live while the user fixes them.
+  const [showErrors, setShowErrors] = useState(false);
+  const incomeRef = useRef<HTMLDivElement>(null);
+  const [incomeOpenSignal, setIncomeOpenSignal] = useState(0);
+  const formErrors: FormError[] = showErrors ? validateInputs(a.inputs) : [];
+  const errorOf = (field: string) => formErrors.find((e) => e.field === field);
+  const errorText = (field: string) => {
+    const err = errorOf(field);
+    return err ? (
+      <span className="field-error" role="alert">
+        {a.t(err.message)}
+      </span>
+    ) : null;
+  };
+  const summaryLabel = (e: FormError) =>
+    e.field === "country"
+      ? a.t("country")
+      : e.field === "income"
+        ? a.t("income")
+        : e.field.endsWith("entry_date")
+          ? a.t("entry")
+          : e.field === "stays"
+            ? a.t("stays")
+            : a.t("visa");
   const run = async (preset?: {
     body: Record<string, any>;
     title?: string;
@@ -136,6 +172,21 @@ export function Calculation() {
     inputs: Inputs;
   }) => {
     setError(null);
+    if (!preset) {
+      const errors = validateInputs(a.inputs);
+      if (errors.length) {
+        // No request and no history entry: open the sections and jump to the first problem.
+        setShowErrors(true);
+        setResidencyOpenSignal((n) => n + 1);
+        if (errors.some((e) => e.field === "income")) setIncomeOpenSignal((n) => n + 1);
+        requestAnimationFrame(() => {
+          const first = document.querySelector<HTMLElement>(`[data-field="${errors[0]!.field}"]`);
+          first?.scrollIntoView({ behavior: "smooth", block: "center" });
+          first?.querySelector<HTMLElement>("input, select")?.focus({ preventScroll: true });
+        });
+        return;
+      }
+    }
     setBusy(true);
     try {
       const body = cleanPayload(preset?.body || buildBody(a.inputs, TAX_YEAR, a.language));
@@ -166,16 +217,21 @@ export function Calculation() {
     onChange: (v: string) => void,
     type = "text",
     placeholder = "",
+    check?: { field: string; required?: boolean },
   ) => (
-    <label className="field">
-      {label}
+    <label className="field" data-field={check?.field}>
+      <span>
+        {label}
+        {check?.required && <Required />}
+      </span>
       <input
-        aria-invalid={invalid(key)}
+        aria-invalid={invalid(key) || Boolean(check && errorOf(check.field))}
         type={type}
         value={value}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
       />
+      {check && errorText(check.field)}
     </label>
   );
   return (
@@ -189,7 +245,19 @@ export function Calculation() {
             </h2>
             <span className="text-[10px] text-muted-foreground">{a.t("quickHint")}</span>
           </div>
-          {presets.isError && <div role="alert" className="notice my-4 flex items-center justify-between gap-3"><span>{a.t("network_error")}</span><Button variant="ghost" size="sm" onClick={() => presets.refetch()} disabled={presets.isFetching}>{a.t("retry")}</Button></div>}
+          {presets.isError && (
+            <div role="alert" className="notice my-4 flex items-center justify-between gap-3">
+              <span>{a.t("network_error")}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => presets.refetch()}
+                disabled={presets.isFetching}
+              >
+                {a.t("retry")}
+              </Button>
+            </div>
+          )}
           {items.length > 0 ? (
             <div className="quick-starts">
               {items.slice(0, 3).map((preset, i) => (
@@ -225,11 +293,22 @@ export function Calculation() {
           )}
           <form
             className="glass"
+            noValidate
             onSubmit={(e) => {
               e.preventDefault();
               run();
             }}
           >
+            {formErrors.length > 0 && (
+              <div role="alert" className="notice mx-5 mt-5 flex items-start gap-3">
+                <AlertCircle className="mt-1 size-4 shrink-0" />
+                <span>
+                  {a
+                    .t("fixRequired")
+                    .replace("{fields}", [...new Set(formErrors.map(summaryLabel))].join(", "))}
+                </span>
+              </div>
+            )}
             <div ref={residencyRef} className="scroll-mt-24">
               <Section
                 icon={Globe2}
@@ -239,9 +318,13 @@ export function Calculation() {
                 openSignal={residencyOpenSignal}
               >
                 <div className="field-grid">
-                  <label className="field">
-                    {a.t("visa")}
+                  <label className="field" data-field="visa">
+                    <span>
+                      {a.t("visa")}
+                      <Required />
+                    </span>
                     <select
+                      aria-invalid={Boolean(errorOf("visa"))}
                       value={a.inputs.visa}
                       onChange={(e) => update({ visa: e.target.value })}
                     >
@@ -257,12 +340,14 @@ export function Calculation() {
                     (v) => update({ country: v }),
                     "text",
                     a.t("countryPlaceholder"),
+                    { field: "country", required: true },
                   )}
                 </div>
                 <div className="mt-6 flex items-center justify-between">
                   <h3 className="text-xs font-medium">{a.t("stays")}</h3>
                   <span className="text-[10px] text-muted-foreground">{a.t("optionalExit")}</span>
                 </div>
+                {errorText("stays")}
                 {a.inputs.stays.map((s, i) => (
                   <div key={i} className="stay-grid">
                     <label className="field">
@@ -293,6 +378,8 @@ export function Calculation() {
                           ),
                         }),
                       "date",
+                      "",
+                      { field: `stays.${i}.entry_date`, required: true },
                     )}
                     {field(
                       "exit_date",
@@ -354,42 +441,60 @@ export function Calculation() {
                 </div>
               </Section>
             </div>
-            <Section icon={Wallet} title={a.t("income")} hint={a.t("incomeHint")} defaultOpen>
-              <label className="field mb-5">
-                {a.t("filing")}
-                <select
-                  value={a.inputs.filing}
-                  onChange={(e) => update({ filing: e.target.value })}
-                >
-                  {["single", "married_joint", "married_separate", "head_of_household"].map((v) => (
-                    <option value={v} key={v}>
-                      {a.t(v as Key)}
-                    </option>
+            <div ref={incomeRef} data-field="income" className="scroll-mt-24">
+              <Section
+                icon={Wallet}
+                title={a.t("income")}
+                hint={a.t("incomeHint")}
+                defaultOpen
+                openSignal={incomeOpenSignal}
+              >
+                <label className="field mb-5">
+                  {a.t("filing")}
+                  <select
+                    value={a.inputs.filing}
+                    onChange={(e) => update({ filing: e.target.value })}
+                  >
+                    {["single", "married_joint", "married_separate", "head_of_household"].map(
+                      (v) => (
+                        <option value={v} key={v}>
+                          {a.t(v as Key)}
+                        </option>
+                      ),
+                    )}
+                  </select>
+                </label>
+                <div className="field-grid">
+                  {incomeKeys.map((k) => (
+                    <label className="field" key={k}>
+                      {a.t(k)}
+                      <div className="money-field">
+                        <span>$</span>
+                        <input
+                          aria-invalid={invalid(k)}
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={a.inputs.income[k] || ""}
+                          onChange={(e) =>
+                            update({ income: { ...a.inputs.income, [k]: e.target.value } })
+                          }
+                        />
+                      </div>
+                    </label>
                   ))}
-                </select>
-              </label>
-              <div className="field-grid">
-                {incomeKeys.map((k) => (
-                  <label className="field" key={k}>
-                    {a.t(k)}
-                    <div className="money-field">
-                      <span>$</span>
-                      <input
-                        aria-invalid={invalid(k)}
-                        type="number"
-                        min="0"
-                        step="0.01"
-                        placeholder="0.00"
-                        value={a.inputs.income[k] || ""}
-                        onChange={(e) =>
-                          update({ income: { ...a.inputs.income, [k]: e.target.value } })
-                        }
-                      />
-                    </div>
-                  </label>
-                ))}
-              </div>
-            </Section>
+                </div>
+                <label className="mt-5 flex items-center gap-3 text-xs">
+                  <Switch
+                    checked={a.inputs.noIncome}
+                    onCheckedChange={(noIncome) => update({ noIncome })}
+                  />
+                  {a.t("noIncomeYear").replace("{year}", String(TAX_YEAR))}
+                </label>
+                {errorOf("income") && <div className="mt-3">{errorText("income")}</div>}
+              </Section>
+            </div>
             <Section icon={Landmark} title={a.t("bank")} hint={a.t("bankHint")}>
               <div className="mb-4 flex flex-wrap items-center gap-2">
                 <Button
@@ -526,7 +631,9 @@ export function Calculation() {
                 <span>
                   {["not_connected", "network_error", "invalid_input"].includes(error.message)
                     ? a.t(error.message as Key)
-                    : error.message}{" "}
+                    : error.message === NO_STAYS_DETAIL
+                      ? a.t("errStays")
+                      : error.message}{" "}
                   {error.status === 422 && a.t("invalid_input")}
                 </span>
                 <Button type="button" variant="ghost" size="sm" onClick={() => run()}>
