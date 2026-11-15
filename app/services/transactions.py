@@ -9,6 +9,7 @@ from app.schemas import (
     TransactionsAnalyzeRequest,
     TransactionsAnalyzeResponse,
 )
+from app.config import DEFAULT_TAX_YEAR
 from app.i18n import translate_source_text
 
 RULES: List[Tuple[str, str, Optional[str], float, str]] = [
@@ -91,7 +92,7 @@ def parse_csv_rows(raw_csv: str) -> List[TransactionInput]:
     for idx, row in enumerate(reader):
         clean = {k.strip().lower(): (v.strip() if v else "") for k, v in row.items() if k}
         desc = clean.get("description") or clean.get("merchant") or clean.get("name") or f"Transaction #{idx + 1}"
-        dt = clean.get("date") or clean.get("posted_date") or "2025-06-15"
+        dt = clean.get("date") or clean.get("posted_date") or f"{DEFAULT_TAX_YEAR}-06-15"
         amt_str = re.sub(r"[^0-9.\-]", "", clean.get("amount") or clean.get("usd") or "0")
         try:
             amt = float(amt_str)

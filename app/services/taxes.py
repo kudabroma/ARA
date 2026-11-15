@@ -1,6 +1,6 @@
 from typing import List, Tuple
 
-from app.config import SCHOLAR_VISAS, STUDENT_VISAS, TAX_YEARS
+from app.config import DEFAULT_TAX_YEAR, SCHOLAR_VISAS, STUDENT_VISAS, TAX_YEARS
 from app.i18n import localized_period, tr
 from app.schemas import (
     BracketBreakdownItem,
@@ -43,7 +43,7 @@ def _progressive_tax(
 
 
 def calculate_taxes(req: TaxCalculationRequest) -> TaxCalculationResponse:
-    year = req.tax_year if req.tax_year in TAX_YEARS else 2025
+    year = req.tax_year if req.tax_year in TAX_YEARS else DEFAULT_TAX_YEAR
     cfg = TAX_YEARS[year]
     status = req.filing_status.lower()
     if status not in cfg["brackets"]:

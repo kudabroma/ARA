@@ -68,6 +68,44 @@ def test_nonresident_texts_are_brand_neutral_and_india_warning_is_conditional():
     assert "generally cannot claim the standard deduction" in warnings("Kazakhstan")
 
 
+def test_default_tax_year_is_2026_everywhere():
+    from app.schemas import (
+        CollectedTaxProfile, Form8843Request, ResidencyRequest, TaxCalculationRequest, TransactionsAnalyzeRequest,
+    )
+
+    for model in (ResidencyRequest, TaxCalculationRequest, TransactionsAnalyzeRequest, CollectedTaxProfile):
+        assert model().tax_year == 2026
+    assert Form8843Request().tax_year == 2026
+    res = client.post("/api/analyze-all", json={"residency": {"stays": [{"visa_type": "H-1B", "entry_date": "2026-01-01"}]}})
+    assert res.json()["residency"]["tax_year"] == 2026
+    # 2025 is still accepted when asked for explicitly
+    res = client.post("/api/analyze-all", json={"residency": {"tax_year": 2025, "stays": []}})
+    assert res.json()["residency"]["tax_year"] == 2025
+
+
+def test_demo_presets_are_2026_and_keep_their_conclusions():
+    presets = {p["preset_id"]: p["payload"] for p in client.get("/api/demo-presets").json()["presets"]}
+    results = {pid: client.post("/api/analyze-all", json=payload).json() for pid, payload in presets.items()}
+    for data in results.values():
+        assert data["residency"]["tax_year"] == 2026
+        assert data["taxes"]["tax_year"] == 2026
+
+    case1 = results["f1_opt_hybrid_1099_fica"]
+    assert case1["residency"]["residency_status"] == "NONRESIDENT_ALIEN"
+    assert case1["taxes"]["erroneous_fica_refund_amount"] > 0
+    assert case1["form_8843"]["pdf_base64"].startswith("JVBERi")
+
+    case2 = results["opt_to_h1b_october_transition"]
+    assert case2["residency"]["residency_status"] == "NONRESIDENT_ALIEN"
+    assert case2["residency"]["current_year_countable_days"] == 92  # H-1B from Oct 1, 2026
+    assert case2["residency"]["first_year_choice_available"] is True
+    assert case2["form_8843"]["pdf_base64"].startswith("JVBERi")  # demo profile -> PDF right away
+
+    case3 = results["digital_nomad_1099_contractor"]
+    assert case3["residency"]["residency_status"] == "RESIDENT_ALIEN"
+    assert case3["taxes"]["self_employment_tax"] > 0
+
+
 def test_analyze_all_and_pdf():
     preset = client.get("/api/demo-presets").json()["presets"][0]["payload"]
     res = client.post("/api/analyze-all", json=preset)
@@ -377,10 +415,11 @@ def test_chat_small_talk_gets_friendly_reply_and_next_question(no_llm, text, ui_
 
 
 def test_chat_tax_question_is_answered_then_returns_to_questionnaire(no_llm):
-    profile = {"tax_year": 2025, "visa_type": "OPT", "entry_date": "2023-08-15"}
+    profile = {"visa_type": "OPT", "entry_date": "2023-08-15"}  # default tax year: 2026
     data = _chat("how to pay for taxes", profile=profile)
     assert "IRS Direct Pay" in data["reply"] and "1040-ES" in data["reply"]
-    assert "April 15, 2026" in data["reply"]  # due dates come from app/config.py
+    assert "April 15, 2027" in data["reply"]  # 2026 due dates come from app/config.py
+    assert data["collected_profile"]["tax_year"] == 2026
     assert "Now, to calculate it precisely" in data["reply"]
     assert "how much did you earn" in data["reply"].split("\n\n")[-1].lower()
     assert data["intent"] == "tax_question"
@@ -469,6 +508,90 @@ def test_chat_llm_fields_must_be_stated_by_the_user(monkeypatch):
     assert data["collected_profile"]["country_of_citizenship"] is None
     assert "Nonresident for tax purposes" in data["reply"]
     assert data["suggested_replies"] == ["August 2023"]
+
+
+def _dialog(messages, language="ru"):
+    history = [{"role": "assistant", "content": "Привет! Какая у вас виза и когда вы впервые въехали в США?"}]
+    profile, replies, data = {}, [], None
+    for text in messages:
+        history.append({"role": "user", "content": text})
+        data = _chat_raw(history, language, profile)
+        profile = data["collected_profile"]
+        replies.append(data["reply"])
+        history.append({"role": "assistant", "content": data["reply"]})
+    return data, replies
+
+
+def _chat_raw(history, language, profile):
+    res = client.post("/api/chat", json={"language": language, "messages": history, "collected_profile": profile})
+    assert res.status_code == 200, res.text
+    return res.json()
+
+
+def test_chat_dialog_with_85000_on_1099_gives_a_real_tax(no_llm):
+    data, replies = _dialog([
+        "У меня виза F-1, въехал 1 сентября 2023 года.",
+        "Да, у меня был доход по W-2.",
+        "У меня также был доход по 1099.",
+        "Только 1099: $85 000",
+    ])
+    profile = data["collected_profile"]
+    assert profile["entry_date"] == "2023-09-01"
+    assert profile["gross_1099_income"] == 85000
+    assert profile["w2_wages"] == 0
+    assert data["live_calculation"]["taxes"]["total_tax_liability"] > 0
+    assert all("$0.00" not in r for r in replies)
+    # "W-2 mentioned" and "also 1099" are understood as statements, not "didn't get that"
+    assert "Не совсем понял" not in replies[1] and "W-2" in replies[1]
+    assert "Понял, есть и 1099" in replies[2] and "1099" in replies[2] and "W-2" in replies[2]
+    # F-1 (not OPT) + 1099: soft authorization note
+    assert "DSO" in replies[3]
+
+    # finishing the profile shows the summary built from the calculation
+    data, replies = _dialog([
+        "У меня виза F-1, въехал 1 сентября 2023 года.",
+        "Только 1099: $85 000",
+        "Расходов не было ($0)",
+    ])
+    assert data["is_complete"] is True
+    done = replies[-1]
+    assert "нерезидент (Form 1040-NR)" in done
+    assert "доход по 1099 $85,000" in done
+    tax = data["live_calculation"]["taxes"]["total_tax_liability"]
+    assert f"${tax:,.0f}" in done and tax > 0
+    assert data["collected_profile"]["no_income"] is None
+
+
+def test_chat_never_completes_on_a_silent_zero(no_llm):
+    data, _ = _dialog(["I'm on H-1B since 2020-01-15", "I had W-2 wages"], "en")
+    assert data["is_complete"] is False
+    assert "w2_wages" in data["missing_fields"]
+    data, replies = _dialog(["I'm on H-1B since 2020-01-15", "$0 on W-2"], "en")
+    assert data["is_complete"] is False and "income_sources" in data["missing_fields"]
+    # an explicit "no income" is a valid answer
+    data, replies = _dialog(["I'm on H-1B since 2020-01-15", "No income ($0)"], "en")
+    assert data["is_complete"] is True
+    assert "no income" in replies[-1]
+
+
+@pytest.mark.parametrize("amount", ["$85 000", "85,000", "$85k", "85к", "85 тыс", "85 тысяч", "eighty-five thousand", "85 mil"])
+def test_chat_reads_1099_amount_in_any_format(no_llm, amount):
+    data, _ = _dialog(["I'm on OPT since 2024-08-20", f"1099 only: {amount}"], "en")
+    assert data["collected_profile"]["gross_1099_income"] == 85000
+    assert data["collected_profile"]["w2_wages"] == 0
+
+
+def test_f1_with_1099_gets_an_advisory_in_results():
+    body = {
+        "residency": {"stays": [{"visa_type": "F-1", "entry_date": "2024-08-20"}]},
+        "taxes": {"visa_type": "F-1", "gross_1099_income": 85000},
+        "language": "ru",
+    }
+    data = client.post("/api/analyze-all", json=body).json()
+    assert any("DSO" in a for a in data["advisories"])
+    assert data["taxes"]["total_tax_liability"] > 0
+    body["taxes"]["visa_type"] = "OPT"
+    assert client.post("/api/analyze-all", json=body).json()["advisories"] == []
 
 
 if __name__ == "__main__":

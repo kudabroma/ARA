@@ -10,7 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { money, presetInputs } from "@/lib/ara/api";
+import { money, presetInputs, TAX_YEAR } from "@/lib/ara/api";
 import { formGuidance } from "@/lib/ara/form-guidance";
 import type { Key } from "@/lib/ara/i18n";
 import { useAra, type CalculationEntry, type CalculationSource } from "./context";
@@ -92,6 +92,7 @@ export function HistoryPanel({
           {a.t("new")}
         </Button>
       </div>
+      <p className="history-year">{a.t("taxYearLabel").replace("{year}", String(TAX_YEAR))}</p>
       {a.plan === "pro" && a.history.length > 1 && (
         <div className="history-compare">
           <span title={a.t("compareHint")}>{a.t("compareHint")}</span>

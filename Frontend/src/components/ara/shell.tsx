@@ -67,18 +67,6 @@ export function AraShell({ children }: { children: ReactNode }) {
             {a.t("workspace")}
           </span>
         </Link>
-        <div className="header-year flex items-center gap-2 text-xs">
-          <span className="header-year-label text-muted-foreground">{a.t("year")}</span>
-          <select
-            aria-label={a.t("year")}
-            className="rounded-md border border-border bg-background px-2 py-2 text-xs"
-            value={a.year}
-            onChange={(e) => a.setYear(Number(e.target.value))}
-          >
-            <option>2025</option>
-            <option>2026</option>
-          </select>
-        </div>
         <div className="header-controls flex items-center gap-4">
           <select
             aria-label="Language"

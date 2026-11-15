@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  TAX_YEAR,
   buildBody,
   backendLanguage,
   canSendChat,
@@ -8,6 +9,10 @@ import {
   BASE_URL,
 } from "@/lib/ara/api";
 describe("ARA product rules", () => {
+  it("works with a single tax year, 2026", () => {
+    expect(TAX_YEAR).toBe(2026);
+    expect(buildBody(initialInputs, TAX_YEAR, "en").residency.tax_year).toBe(2026);
+  });
   it("allows five free messages, not six", () => {
     expect(canSendChat("free", 4)).toBe(true);
     expect(canSendChat("free", 5)).toBe(false);

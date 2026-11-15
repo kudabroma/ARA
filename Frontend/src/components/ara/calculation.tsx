@@ -28,6 +28,7 @@ import {
   cleanPayload,
   presetInputs,
   type Inputs,
+  TAX_YEAR,
 } from "@/lib/ara/api";
 import { useDemoPresets } from "./use-demo-presets";
 import type { Key } from "@/lib/ara/i18n";
@@ -137,7 +138,7 @@ export function Calculation() {
     setError(null);
     setBusy(true);
     try {
-      const body = cleanPayload(preset?.body || buildBody(a.inputs, a.year, a.language));
+      const body = cleanPayload(preset?.body || buildBody(a.inputs, TAX_YEAR, a.language));
       const response = await analyzeAll(body);
       a.addEntry({
         source: preset ? "preset" : "form",
@@ -415,7 +416,7 @@ export function Calculation() {
                   onClick={() => {
                     update({
                       transactionMode: "csv",
-                      csv: "date,description,amount\n2025-02-01,Client invoice,2500\n2025-02-03,Adobe subscription,-59.99\n2025-02-05,Groceries,-82.50",
+                      csv: "date,description,amount\n2026-02-01,Client invoice,2500\n2026-02-03,Adobe subscription,-59.99\n2026-02-05,Groceries,-82.50",
                     });
                     setSample(true);
                   }}

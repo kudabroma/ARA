@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Dict, List, Tuple
 
-from app.config import SCHOLAR_VISAS, STUDENT_VISAS, TAX_YEARS
+from app.config import DEFAULT_TAX_YEAR, SCHOLAR_VISAS, STUDENT_VISAS, TAX_YEARS
 from app.i18n import tr
 from app.schemas import FilingFormItem, ResidencyRequest, ResidencyResponse, YearDayBreakdown
 
@@ -44,7 +44,7 @@ def normalize_visa(visa: str) -> str:
 
 
 def calculate_residency(req: ResidencyRequest) -> ResidencyResponse:
-    target_year = req.tax_year if req.tax_year in TAX_YEARS else 2025
+    target_year = req.tax_year if req.tax_year in TAX_YEARS else DEFAULT_TAX_YEAR
     window_years = [target_year - 2, target_year - 1, target_year]
     prior_exempt_years = set(req.prior_exempt_calendar_years)
 

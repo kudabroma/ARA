@@ -1418,15 +1418,26 @@ textarea {
 }
 .doc-card {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 16px;
   padding: 20px;
 }
+.doc-card-head {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.doc-card-form {
+  display: grid;
+  gap: 14px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
 @media (max-width: 760px) {
-  .doc-card {
+  .doc-card-head {
     flex-wrap: wrap;
   }
-  .doc-card > button {
+  .doc-card-head > button {
     width: 100%;
   }
 }
@@ -1483,4 +1494,10 @@ textarea {
 .theme-toggle:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+.history-year {
+  margin-top: -6px;
+  font-size: 11px;
+  color: var(--muted-foreground);
 }

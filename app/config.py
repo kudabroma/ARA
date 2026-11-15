@@ -1,5 +1,8 @@
 from typing import Any, Dict, Set
 
+# The app works on one tax year; 2025 stays supported for explicit API requests.
+DEFAULT_TAX_YEAR = 2026
+
 STUDENT_VISAS: Set[str] = {"F-1", "F-2", "OPT", "STEM-OPT", "J-1-STUDENT", "M-1", "M-2", "Q-1"}
 SCHOLAR_VISAS: Set[str] = {"J-1-SCHOLAR", "J-1-TEACHER", "J-1-RESEARCHER", "J-2"}
 WORK_VISAS: Set[str] = {"H-1B", "H-4", "L-1", "L-2", "O-1", "TN", "E-2", "B-1/B-2", "ESTA", "OTHER"}

@@ -11,9 +11,9 @@ function Consumer() {
   const shared = useSharedAra();
   return (
     <>
-      <output>{session.year}</output>
+      <output>{session.plan}</output>
       <output>{String(session === shared)}</output>
-      <button onClick={() => session.setYear(2026)}>Change year</button>
+      <button onClick={() => session.setPlan("free")}>Change plan</button>
     </>
   );
 }
@@ -25,7 +25,7 @@ describe("ARA shared session", () => {
         <Consumer />
       </AraProvider>,
     );
-    expect(screen.getByText("2025")).toBeInTheDocument();
+    expect(screen.getByText("pro")).toBeInTheDocument();
     expect(screen.getByText("true")).toBeInTheDocument();
   });
 
@@ -35,12 +35,12 @@ describe("ARA shared session", () => {
         <Consumer />
       </AraProvider>,
     );
-    fireEvent.click(screen.getByText("Change year"));
+    fireEvent.click(screen.getByText("Change plan"));
     view.rerender(
       <AraProvider>
         <Consumer />
       </AraProvider>,
     );
-    expect(screen.getByText("2026")).toBeInTheDocument();
+    expect(screen.getByText("free")).toBeInTheDocument();
   });
 });

@@ -26,8 +26,6 @@ export type State = {
   language: Language;
   setLanguage: (language: Language) => void;
   t: (key: Key) => string;
-  year: number;
-  setYear: (year: number) => void;
   plan: "free" | "pro";
   setPlan: (plan: "free" | "pro") => void;
   theme: Theme;

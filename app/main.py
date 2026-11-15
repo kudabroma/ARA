@@ -20,7 +20,7 @@ from app.schemas import (
     copy_model,
     dump_model,
 )
-from app.services.advisor import generate_explanation, run_chat_turn
+from app.services.advisor import f1_self_employment_note, generate_explanation, run_chat_turn
 from app.services.pdf_8843 import generate_form_8843_pdf
 from app.services.residency import calculate_residency
 from app.services.taxes import calculate_taxes
@@ -198,8 +198,15 @@ def _analyze_all(req: UnifiedAnalyzeRequest) -> Dict[str, Any]:
         )
     )
 
+    advisories = []
+    if req.taxes:
+        note = f1_self_employment_note(req.language, req.taxes.visa_type, req.taxes.gross_1099_income)
+        if note:
+            advisories.append(note)
+
     return {
         "subscription_active": True,
+        "advisories": advisories,
         "residency": dump_model(res_out),
         "transactions": dump_model(tx_out) if tx_out else None,
         "taxes": dump_model(tax_out) if tax_out else None,

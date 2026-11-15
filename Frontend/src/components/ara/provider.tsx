@@ -24,7 +24,6 @@ function applyTheme(next: Theme, setState: (t: Theme) => void) {
 
 export function AraProvider({ children }: { children: ReactNode }) {
   const [language, setLanguageState] = useState<Language>("en");
-  const [year, setYear] = useState(2025);
   const [plan, setPlan] = useState<"free" | "pro">("pro");
   const [inputs, setInputs] = useState<Inputs>(initialInputs);
   const [history, setHistory] = useState<CalculationEntry[]>([]);
@@ -110,8 +109,6 @@ export function AraProvider({ children }: { children: ReactNode }) {
         language,
         setLanguage,
         t: (k) => translate(language, k),
-        year,
-        setYear,
         plan,
         setPlan,
         theme,

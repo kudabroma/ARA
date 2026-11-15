@@ -11,7 +11,7 @@ import { Link } from "@tanstack/react-router";
 import { Button } from "@/components/ui/button";
 import { useAra, type CalculationEntry } from "./context";
 import { CompareTable, HistoryPanel, entryVisa, useEditEntry } from "./history";
-import { money, type Language } from "@/lib/ara/api";
+import { money, TAX_YEAR, type Language } from "@/lib/ara/api";
 import type { Key } from "@/lib/ara/i18n";
 import { formGuidance } from "@/lib/ara/form-guidance";
 export function Locked({ children }: { children: ReactNode }) {
@@ -172,7 +172,12 @@ function ResultDetail({ entry }: { entry: CalculationEntry }) {
         </>
       )}
       <div className="glass p-8">
-        <span className="status-pill">{residency.status_label || a.t("noData")}</span>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="status-pill">{residency.status_label || a.t("noData")}</span>
+          <span className="text-xs text-muted-foreground">
+            {a.t("taxYearLabel").replace("{year}", String(residency.tax_year ?? TAX_YEAR))}
+          </span>
+        </div>
         <p className="mt-6 text-sm text-muted-foreground">
           {a.t(taxes.is_refund ? "refund" : "owe")}
         </p>
@@ -188,6 +193,11 @@ function ResultDetail({ entry }: { entry: CalculationEntry }) {
       {!guidance && residency.software_warnings && (
         <div className="notice mt-4">
           <Readable value={residency.software_warnings} />
+        </div>
+      )}
+      {Array.isArray(r["advisories"]) && r["advisories"].length > 0 && (
+        <div className="notice mt-4" role="note">
+          <Readable value={r["advisories"]} />
         </div>
       )}
       {taxes.erroneous_fica_refund_amount > 0 && (

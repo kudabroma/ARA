@@ -3,6 +3,8 @@ from datetime import date
 
 from pydantic import BaseModel, Field, validator
 
+from app.config import DEFAULT_TAX_YEAR
+
 try:  # pydantic v2
     from pydantic import model_validator
 except ImportError:  # pragma: no cover - pydantic v1 fallback
@@ -71,7 +73,7 @@ class VisaStay(BaseModel):
 
 class ResidencyRequest(NullToDefaultModel):
     language: Language = "en"
-    tax_year: int = 2025
+    tax_year: int = DEFAULT_TAX_YEAR
     stays: List[VisaStay] = Field(default_factory=list)
     prior_exempt_calendar_years: List[int] = Field(default_factory=list)
     has_green_card: bool = False
@@ -121,7 +123,7 @@ class ResidencyResponse(BaseModel):
 
 class TransactionInput(BaseModel):
     id: Optional[str] = None
-    date: str = "2025-06-15"
+    date: str = f"{DEFAULT_TAX_YEAR}-06-15"
     description: str
     amount: float
     type_hint: Optional[str] = None
@@ -142,7 +144,7 @@ class CategorizedTransaction(BaseModel):
 
 class TransactionsAnalyzeRequest(BaseModel):
     language: Language = "en"
-    tax_year: int = 2025
+    tax_year: int = DEFAULT_TAX_YEAR
     marginal_tax_rate_estimate: float = 0.273
     transactions: List[TransactionInput] = Field(default_factory=list)
     csv_text: Optional[str] = None
@@ -161,7 +163,7 @@ class TransactionsAnalyzeResponse(BaseModel):
 
 class TaxCalculationRequest(NullToDefaultModel):
     language: Language = "en"
-    tax_year: int = 2025
+    tax_year: int = DEFAULT_TAX_YEAR
     filing_status: str = "single"
     residency_status: str = "RESIDENT_ALIEN"
     visa_type: str = "H-1B"
@@ -219,7 +221,7 @@ class TaxCalculationResponse(BaseModel):
 
 
 class Form8843Request(BaseModel):
-    tax_year: int = 2025
+    tax_year: int = DEFAULT_TAX_YEAR
     first_name: str = ""
     last_name: str = ""
     us_address: str = ""
@@ -264,7 +266,7 @@ class ChatMessage(BaseModel):
 
 
 class CollectedTaxProfile(BaseModel):
-    tax_year: int = 2025
+    tax_year: int = DEFAULT_TAX_YEAR
     visa_type: Optional[str] = None
     entry_date: Optional[str] = None
     country_of_citizenship: Optional[str] = None
@@ -273,6 +275,10 @@ class CollectedTaxProfile(BaseModel):
     w2_wages: Optional[float] = None
     w2_federal_withheld: Optional[float] = None
     w2_fica_withheld: Optional[float] = None
+    # Income types the user mentioned ("w2", "1099"), even before giving amounts.
+    income_types: Optional[List[str]] = None
+    # True only when the user explicitly said there was no income.
+    no_income: Optional[bool] = None
 
 
 class ChatAgentRequest(BaseModel):

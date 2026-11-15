@@ -21,9 +21,12 @@ import {
   chatProfileBody,
   money,
   presetInputs,
+  TAX_YEAR,
 } from "@/lib/ara/api";
 import { fieldLabel, type Key } from "@/lib/ara/i18n";
 
+/** Bookkeeping fields of the chat profile that are not shown as "known" facts. */
+const HIDDEN_PROFILE_KEYS = ["tax_year", "income_types", "no_income"];
 const MAX_INPUT_LINES = 5;
 const MIN_CHAT_HEIGHT = 480;
 /** Typewriter: ~20 ms per word, but the whole answer never takes longer than ~1.2 s. */
@@ -208,7 +211,7 @@ export function Chat() {
   };
 
   const [fullFailed, setFullFailed] = useState(false);
-  const chatBody = () => chatProfileBody(a.chatData["collected_profile"] || {}, a.year, a.language);
+  const chatBody = () => chatProfileBody(a.chatData["collected_profile"] || {}, TAX_YEAR, a.language);
   const fillInForm = () => {
     a.setInputs(presetInputs(chatBody()));
     a.setSection("new");
@@ -241,7 +244,7 @@ export function Chat() {
   };
 
   const known = Object.entries(a.chatData["collected_profile"] || {}).filter(
-    ([k, v]) => v !== null && v !== undefined && k !== "tax_year",
+    ([k, v]) => v !== null && v !== undefined && !HIDDEN_PROFILE_KEYS.includes(k),
   );
   const missing: string[] = a.chatData["missing_fields"] || [];
   const total = known.length + missing.length;

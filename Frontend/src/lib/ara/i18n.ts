@@ -237,6 +237,14 @@ const en = {
   compareNet: "Result",
   cardOwe: "To pay",
   cardRefund: "Refund",
+  firstName: "First name",
+  lastName: "Last name",
+  generatePdf: "Generate PDF",
+  docMissingHint:
+    "Add the details Form 8843 needs; visa, entry date and day counts come from this calculation.",
+  not8843Needed:
+    "Form 8843 is only for exempt individuals (F/J/M). Based on your calculations it isn't required.",
+  taxYearLabel: "Tax year {year}",
   themeToDark: "Switch to dark theme",
   themeToLight: "Switch to light theme",
   assistantTyping: "Assistant is typing",
@@ -496,6 +504,14 @@ const ru: Partial<typeof en> = {
   compareNet: "Итог",
   cardOwe: "К уплате",
   cardRefund: "Вернут",
+  firstName: "Имя",
+  lastName: "Фамилия",
+  generatePdf: "Сгенерировать PDF",
+  docMissingHint:
+    "Заполните данные для Form 8843; виза, дата въезда и количество дней возьмутся из этого расчёта.",
+  not8843Needed:
+    "Form 8843 нужна только освобождённым лицам (F/J/M). По вашим расчётам она не требуется.",
+  taxYearLabel: "Налоговый год {year}",
   themeToDark: "Включить тёмную тему",
   themeToLight: "Включить светлую тему",
   assistantTyping: "Ассистент печатает",
@@ -752,6 +768,14 @@ const es: Partial<typeof en> = {
   compareNet: "Resultado",
   cardOwe: "A pagar",
   cardRefund: "Te devuelven",
+  firstName: "Nombre",
+  lastName: "Apellido",
+  generatePdf: "Generar PDF",
+  docMissingHint:
+    "Añade los datos que necesita el Form 8843; la visa, la fecha de entrada y los días salen de este cálculo.",
+  not8843Needed:
+    "El Form 8843 solo es para personas exentas (F/J/M). Según tus cálculos no es necesario.",
+  taxYearLabel: "Año fiscal {year}",
   themeToDark: "Cambiar al tema oscuro",
   themeToLight: "Cambiar al tema claro",
   assistantTyping: "El asistente está escribiendo",

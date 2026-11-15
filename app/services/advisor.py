@@ -18,6 +18,8 @@ from app.schemas import (
     dump_model,
 )
 from app import faq
+from app.money import parse_money
+from app.config import DEFAULT_TAX_YEAR
 from app.i18n import normalize_language, tr
 from app.services.residency import calculate_residency
 from app.services.taxes import calculate_taxes
@@ -35,6 +37,8 @@ _SYSTEM_RULES = (
     "software or preparer supports Form 1040-NR. "
     "Never show raw status codes such as RESIDENT_ALIEN, NONRESIDENT_ALIEN or DUAL_STATUS_ALIEN; "
     "say 'resident for tax purposes', 'nonresident' or 'dual-status' in the answer language. "
+    f"Tax year: {DEFAULT_TAX_YEAR}. Every status, amount and deadline you mention is for the "
+    f"{DEFAULT_TAX_YEAR} tax year; do not draw conclusions about other years unless the user explicitly asks. "
 )
 
 
@@ -273,6 +277,51 @@ def generate_explanation(req: ExplainRequest) -> Dict[str, Any]:
     }
 
 
+_W2_WORDS = re.compile(r"w-?2|зарплат|salary|wage|paycheck|salario|sueldo|n[oó]mina", re.IGNORECASE)
+_1099_WORDS = re.compile(
+    r"1099|фриланс|freelanc|самозан|contractor|подрядчик|self-employ|aut[oó]nomo|independiente",
+    re.IGNORECASE,
+)
+_NO_INCOME = re.compile(
+    r"no income|нет дохода|дохода не было|без дохода|нулевой доход|0 доход|sin ingresos|no tuve ingresos",
+    re.IGNORECASE,
+)
+_NO_W2 = re.compile(r"(?:no|нет|не было|без|sin)\s+(?:дохода\s+)?(?:по\s+)?(?:w-?2|зарплат)", re.IGNORECASE)
+_NO_1099 = re.compile(r"(?:no|нет|не было|без|sin)\s+(?:дохода\s+)?(?:по\s+)?(?:1099|фриланс)", re.IGNORECASE)
+_ONLY = re.compile(r"\b(only|только|лишь|solo|solamente|[uú]nicamente)\b", re.IGNORECASE)
+_NOT_AMOUNTS = {1099.0, 8843.0, 1040.0, 843.0, 8316.0} | {float(y) for y in range(2015, 2031)}
+
+_MONTH_STEMS = [
+    ("01", ("янв", "jan", "ene")), ("02", ("фев", "feb")), ("03", ("мар", "mar")), ("04", ("апр", "apr", "abr")),
+    ("05", ("ма", "may")), ("06", ("июн", "jun")), ("07", ("июл", "jul")), ("08", ("авг", "aug", "ago")),
+    ("09", ("сен", "sep", "set")), ("10", ("окт", "oct")), ("11", ("ноя", "nov")), ("12", ("дек", "dec", "dic")),
+]
+
+
+def _month_code(word: str) -> Optional[str]:
+    word = word.lower()
+    for code, stems in _MONTH_STEMS:
+        if any(word.startswith(stem) for stem in stems):
+            return code
+    return None
+
+
+def _parse_full_date(message: str) -> Optional[str]:
+    """'1 сентября 2023' / '1 de septiembre de 2023' / 'September 1, 2023' -> '2023-09-01'."""
+    patterns = [
+        (r"\b(\d{1,2})\s+(?:de\s+)?([a-zа-яё]+)\.?\s+(?:de\s+)?(20[12]\d)\b", ("day", "month", "year")),
+        (r"\b([a-z]+)\.?\s+(\d{1,2})(?:st|nd|rd|th)?,?\s+(20[12]\d)\b", ("month", "day", "year")),
+    ]
+    for pattern, order in patterns:
+        for m in re.finditer(pattern, message, re.IGNORECASE):
+            parts = dict(zip(order, m.groups()))
+            month = _month_code(parts["month"])
+            day = int(parts["day"])
+            if month and 1 <= day <= 31:
+                return f"{parts['year']}-{month}-{day:02d}"
+    return None
+
+
 def _extract_slots(message: str, profile: CollectedTaxProfile) -> CollectedTaxProfile:
     up = message.upper()
     visa_rules = [
@@ -293,8 +342,11 @@ def _extract_slots(message: str, profile: CollectedTaxProfile) -> CollectedTaxPr
             break
 
     iso = re.search(r"\b(20[12]\d-[01]\d-[0-3]\d)\b", message)
+    full_date = _parse_full_date(message)
     if iso:
         profile.entry_date = iso.group(1)
+    elif full_date:
+        profile.entry_date = full_date
     elif not profile.entry_date:
         yr = re.search(r"\b(201[89]|202[0-6])\b", message)
         if yr:
@@ -323,33 +375,54 @@ def _extract_slots(message: str, profile: CollectedTaxProfile) -> CollectedTaxPr
             profile.country_of_citizenship = cname
             break
 
-    if any(w in low for w in ["нет дохода", "no income", "0 доход", "$0", "нулевой доход"]):
+    # Income types mentioned without an amount still count ("у меня был доход по W-2").
+    types = set(profile.income_types or [])
+    if _W2_WORDS.search(low):
+        types.add("w2")
+    if _1099_WORDS.search(low):
+        types.add("1099")
+
+    if _NO_INCOME.search(low):
+        profile.no_income = True
         if profile.gross_1099_income is None:
             profile.gross_1099_income = 0.0
         if profile.w2_wages is None:
             profile.w2_wages = 0.0
+    if _NO_W2.search(low):
+        profile.w2_wages = 0.0
+    if _NO_1099.search(low):
+        profile.gross_1099_income = 0.0
 
-    for match in re.finditer(r"(\$?\s*\d+(?:[.,]\d+)?\s*(?:k|к|тыс)?)", low):
-        tok = match.group(1).replace("$", "").replace(",", "").strip()
-        mult = 1000.0 if tok.endswith(("k", "к", "тыс")) else 1.0
-        tok = re.sub(r"(?:k|к|тыс)$", "", tok).strip()
-        try:
-            val = float(tok) * mult
-        except ValueError:
+    set_now: List[str] = []
+    for amount in parse_money(message):
+        val = amount.value
+        # form numbers, years and stray small numbers are not amounts unless written as money
+        if not amount.explicit and (val in _NOT_AMOUNTS or val < 10):
             continue
-        if val in (1099, 8843, 1040, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026, 2027, 1, 2):
-            continue
-        ctx = low[max(0, match.start() - 20) : min(len(low), match.end() + 10)]
-        if any(k in ctx for k in ["расход", "вычет", "deduct", "expense", "трат"]):
+        ctx = low[max(0, amount.start - 20) : min(len(low), amount.end + 12)]
+        if any(k in ctx for k in ["расход", "вычет", "deduct", "expense", "трат", "gasto"]):
             profile.business_deductions = val
         elif any(k in ctx for k in ["fica", "фика", "social security", "medicare"]):
             profile.w2_fica_withheld = val
-        elif any(k in ctx for k in ["w-2", "w2", "зарплат", "salary", "wage"]):
+        elif _W2_WORDS.search(ctx) and not _1099_WORDS.search(low[amount.end : amount.end + 12]):
             profile.w2_wages = val
-        elif any(k in ctx for k in ["1099", "фриланс", "freelance", "самозан", "доход", "заработ", "earned", "income"]):
+            set_now.append("w2")
+        elif _1099_WORDS.search(ctx) or any(k in ctx for k in ["доход", "заработ", "earned", "income", "ingreso", "gané"]):
             profile.gross_1099_income = val
+            set_now.append("1099")
         elif profile.gross_1099_income is None and val >= 300:
             profile.gross_1099_income = val
+            set_now.append("1099")
+
+    # "Только 1099: $85 000" / "1099 only" -> the other income type is zero
+    if _ONLY.search(low) and len(set(set_now)) == 1:
+        if set_now[0] == "1099" and not profile.w2_wages:
+            profile.w2_wages = 0.0
+        if set_now[0] == "w2" and not profile.gross_1099_income:
+            profile.gross_1099_income = 0.0
+    types.update(set_now)
+    if types:
+        profile.income_types = sorted(types)
 
     return profile
 
@@ -464,6 +537,8 @@ _PROFILE_FIELDS = (
     "w2_wages",
     "w2_federal_withheld",
     "w2_fica_withheld",
+    "income_types",
+    "no_income",
 )
 
 
@@ -559,6 +634,8 @@ def _next_question_key(missing: List[str]) -> Optional[str]:
         ("visa_type", "visa"),
         ("entry_date", "entry"),
         ("income_sources", "income"),
+        ("w2_wages", "amounts"),
+        ("gross_1099_income", "amounts"),
         ("business_deductions", "deductions"),
     ):
         if field in missing:
@@ -574,6 +651,12 @@ def _question_variants(
         "income": profile.gross_1099_income or 0.0,
         "status": status_text(language, status) or status_text(language, "NONRESIDENT_ALIEN"),
     }
+    if key == "amounts":
+        types = set(profile.income_types or [])
+        need_w2 = "w2" in types and profile.w2_wages is None
+        need_1099 = "1099" in types and profile.gross_1099_income is None
+        which = "both" if need_w2 and need_1099 else "w2" if need_w2 else "1099"
+        return [tr(language, f"chat_q_amount_{which}_{i}", year=profile.tax_year) for i in (1, 2)]
     variants = [tr(language, f"chat_q_{key}_{i}", **values) for i in (1, 2, 3)]
     if with_ack:
         # The original acknowledging phrasings come first right after the user answered a question.
@@ -600,7 +683,7 @@ def _chips(language: str, missing: List[str]) -> List[str]:
         return [tr(language, f"chat_visa_{i}") for i in range(1, 6)]
     if "entry_date" in missing:
         return [tr(language, f"chat_entry_{i}") for i in range(1, 4)]
-    if "income_sources" in missing:
+    if "income_sources" in missing or "w2_wages" in missing or "gross_1099_income" in missing:
         return [tr(language, f"chat_income_{i}") for i in range(1, 4)]
     if "business_deductions" in missing:
         return [tr(language, f"chat_deduction_{i}") for i in range(1, 4)]
@@ -622,9 +705,19 @@ def _missing_fields(profile: CollectedTaxProfile) -> List[str]:
         missing.append("visa_type")
     if not profile.entry_date:
         missing.append("entry_date")
-    if profile.gross_1099_income is None and profile.w2_wages is None:
-        missing.append("income_sources")
-    if profile.gross_1099_income and profile.gross_1099_income > 0 and profile.business_deductions is None:
+    types = set(profile.income_types or [])
+    w2, g1099 = profile.w2_wages, profile.gross_1099_income
+    if not profile.no_income:
+        if "w2" in types and w2 is None:
+            missing.append("w2_wages")
+        if "1099" in types and g1099 is None:
+            missing.append("gross_1099_income")
+        no_amount_needed = "w2_wages" not in missing and "gross_1099_income" not in missing
+        # Never treat a profile as complete on a silent zero: some income must be > 0,
+        # unless the user explicitly said there was no income.
+        if no_amount_needed and (w2 or 0) <= 0 and (g1099 or 0) <= 0:
+            missing.append("income_sources")
+    if g1099 and g1099 > 0 and profile.business_deductions is None:
         missing.append("business_deductions")
     return missing
 
@@ -674,6 +767,52 @@ def _live_calculation(profile: CollectedTaxProfile, lang: str) -> Tuple[Optional
     return live_res, live_tax
 
 
+_STATUS_FORM_CODE = {
+    "RESIDENT_ALIEN": "Form 1040",
+    "NONRESIDENT_ALIEN": "Form 1040-NR",
+    "DUAL_STATUS_ALIEN": "Form 1040 + 1040-NR",
+}
+
+
+def _usd(value: float) -> str:
+    return f"${value:,.0f}"
+
+
+def _done_text(language: str, status: Optional[str], profile: CollectedTaxProfile, live_tax: Optional[Dict[str, Any]]) -> str:
+    """'Calculation complete: nonresident (Form 1040-NR), 1099 income $85,000, estimated federal tax $9,672.'"""
+    incomes = []
+    if (profile.gross_1099_income or 0) > 0:
+        incomes.append(tr(language, "chat_income_part_1099", amount=_usd(profile.gross_1099_income)))
+    if (profile.w2_wages or 0) > 0:
+        incomes.append(tr(language, "chat_income_part_w2", amount=_usd(profile.w2_wages)))
+    if not incomes:
+        incomes.append(tr(language, "chat_income_part_none"))
+    return tr(
+        language,
+        "chat_done_summary",
+        status=tr(language, f"status_word_{status}") if status in _STATUS_CODES else "—",
+        form=_STATUS_FORM_CODE.get(status or "", "Form 1040-NR"),
+        incomes=", ".join(incomes),
+        tax=_usd((live_tax or {}).get("total_tax_liability", 0.0)),
+    )
+
+
+def _income_ack(language: str, before: List[str], after: List[str]) -> str:
+    new = [t for t in after if t not in before]
+    if not new:
+        return ""
+    kind = "w2" if new == ["w2"] else "1099" if new == ["1099"] else "both"
+    also = bool(before) and kind != "both"
+    return tr(language, f"chat_ack_{'also_' if also else ''}{kind}")
+
+
+def f1_self_employment_note(language: str, visa_type: Optional[str], gross_1099: Optional[float]) -> str:
+    """F-1 (not OPT) students with 1099 income usually need separate work authorization."""
+    if (visa_type or "").upper() == "F-1" and (gross_1099 or 0) > 0:
+        return tr(language, "warning_f1_1099")
+    return ""
+
+
 def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
     lang = normalize_language(req.language)
     profile = req.collected_profile or CollectedTaxProfile()
@@ -697,9 +836,15 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
     )
     raw_reply, provider = call_llm(prompt, lang)
     llm = _parse_json_object(raw_reply) if raw_reply else None
+    types_before = list(profile.income_types or [])
+    gross_before = profile.gross_1099_income
     if llm and isinstance(llm.get("reply"), str) and llm["reply"].strip():
         intent = llm.get("intent") if llm.get("intent") in _INTENTS else "tax_question"
         extracted = _validated_fields(llm.get("extracted_fields"), last_msg)
+        # Income facts are always read deterministically too, so amounts never silently become 0.
+        for key, value in _extract_from_statements(analysis["statements"], profile).items():
+            if key in ("income_types", "no_income", "w2_wages", "gross_1099_income") or key not in extracted:
+                extracted[key] = value
     else:
         llm = None
         if raw_reply:
@@ -734,6 +879,8 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
             )
             if question not in parts[0]:
                 parts.append(question)
+        elif missing_before:
+            parts.append(_done_text(reply_language, status, profile, live_tax))
         elif intent != "answer":
             parts.append(tr(reply_language, "chat_complete_hint"))
         chips = llm.get("suggested_replies")
@@ -755,24 +902,29 @@ def run_chat_turn(req: ChatAgentRequest) -> Dict[str, Any]:
             parts.append(tr(reply_language, "chat_unknown"))
         if extracted and not only_answer:
             parts.append(tr(reply_language, "chat_saved"))
+        income_ack = _income_ack(reply_language, types_before, list(profile.income_types or []))
+        if income_ack and only_answer:
+            parts.append(income_ack)
 
         if is_complete:
             if only_answer or not parts:
-                tot = live_tax["total_tax_liability"] if live_tax else 0.0
-                saved = live_tax["Deduction_tax_savings_usd"] if live_tax else 0.0
-                parts.append(
-                    tr(reply_language, "chat_done", status=status_text(reply_language, status), tax=tot, saved=saved)
-                )
+                parts.append(_done_text(reply_language, status, profile, live_tax))
             else:
                 parts.append(tr(reply_language, "chat_complete_hint"))
         else:
-            variants = _question_variants(reply_language, question_key, profile, status, with_ack=only_answer)
+            variants = _question_variants(
+                reply_language, question_key, profile, status, with_ack=only_answer and not income_ack
+            )
             question = _pick_fresh(variants, previous_reply)
             if analysis["topics"] or analysis["off_topic"]:
                 question = f"{tr(reply_language, 'chat_transition')} {question}"
             parts.append(question)
         chips = _chips(reply_language, missing)
 
+    if (profile.gross_1099_income or 0) > 0 and gross_before != profile.gross_1099_income:
+        note = f1_self_employment_note(reply_language, profile.visa_type, profile.gross_1099_income)
+        if note:
+            parts.insert(max(len(parts) - 1, 0), note)  # before the next question
     reply = "\n\n".join(p for p in parts if p)
 
     return {
