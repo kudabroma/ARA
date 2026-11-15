@@ -156,9 +156,6 @@ export function AraShell({ children }: { children: ReactNode }) {
                           <Sparkles size={9} className="nav-ai-spark" />
                         </span>
                         <span>{a.t(key)}</span>
-                        <span className="nav-ai-badge" aria-hidden="true">
-                          AI
-                        </span>
                       </Link>
                     </Button>
                     <div className="nav-divider" aria-hidden="true" />

@@ -1502,28 +1502,29 @@ textarea {
   color: var(--muted-foreground);
 }
 
-/* ---- Chat: the main feature, always highlighted as an "AI" item ---- */
+/* ---- Chat: the main feature, softly highlighted (static) ---- */
 :root {
-  --ai-solid: oklch(0.723 0.192 149.6); /* #22C55E */
-  --ai-solid-foreground: oklch(0.266 0.063 152.9); /* #052E16, 6.5:1 on #22C55E */
   --ai-surface: linear-gradient(
     100deg,
-    oklch(0.723 0.192 149.6 / 10%),
-    oklch(0.87 0.19 127 / 10%)
-  ); /* rgba(34,197,94,.10) -> rgba(163,230,53,.10) */
-  --ai-border: linear-gradient(100deg, oklch(0.723 0.192 149.6 / 55%), oklch(0.87 0.19 127 / 55%));
-  --ai-glow: oklch(0.723 0.192 149.6 / 35%);
+    oklch(0.723 0.192 149.6 / 8%),
+    oklch(0.87 0.19 127 / 8%)
+  ); /* rgba(34,197,94,.08) -> rgba(163,230,53,.08) */
+  --ai-border: linear-gradient(100deg, oklch(0.723 0.192 149.6 / 30%), oklch(0.87 0.19 127 / 30%));
+  --ai-active-surface: var(--accent);
+  --ai-active-border: oklch(0.723 0.192 149.6 / 45%); /* rgba(34,197,94,.45) */
+  --ai-active-foreground: oklch(0.448 0.108 151.3); /* #166534 */
 }
 .dark {
   --ai-surface: linear-gradient(
     100deg,
-    oklch(0.723 0.192 149.6 / 12%),
-    oklch(0.87 0.19 127 / 8%)
+    oklch(0.723 0.192 149.6 / 10%),
+    oklch(0.87 0.19 127 / 6%)
   );
-  --ai-border: linear-gradient(100deg, oklch(0.723 0.192 149.6 / 40%), oklch(0.87 0.19 127 / 40%));
+  --ai-border: linear-gradient(100deg, oklch(0.723 0.192 149.6 / 30%), oklch(0.87 0.19 127 / 30%));
+  --ai-active-surface: oklch(0.723 0.192 149.6 / 15%); /* rgba(34,197,94,.15) */
+  --ai-active-foreground: oklch(0.8 0.182 151.7); /* #4ADE80 */
 }
 .nav-item.nav-ai {
-  position: relative;
   border: 1px solid transparent;
   /* the tint sits on a solid layer so the gradient border doesn't show through the fill */
   background:
@@ -1531,7 +1532,6 @@ textarea {
     linear-gradient(var(--background), var(--background)) padding-box,
     var(--ai-border) border-box;
   color: var(--accent-foreground);
-  font-weight: 600;
 }
 .nav-item.nav-ai:hover {
   background:
@@ -1540,35 +1540,11 @@ textarea {
     var(--ai-border) border-box;
   color: var(--accent-foreground);
 }
-/* soft glow every few seconds (opacity only; disabled with prefers-reduced-motion) */
-.nav-item.nav-ai::after {
-  content: "";
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  box-shadow: 0 0 0 1px var(--ai-glow), 0 0 14px var(--ai-glow);
-  opacity: 0;
-  pointer-events: none;
-  animation: ai-glow 6s ease-in-out infinite;
-}
-@keyframes ai-glow {
-  0%,
-  70%,
-  100% {
-    opacity: 0;
-  }
-  82% {
-    opacity: 1;
-  }
-}
 .nav-item.nav-ai.active {
-  background: var(--ai-solid);
-  border-color: var(--ai-solid);
-  color: var(--ai-solid-foreground);
+  background: var(--ai-active-surface);
+  border-color: var(--ai-active-border);
+  color: var(--ai-active-foreground);
   box-shadow: none;
-}
-.nav-item.nav-ai.active::after {
-  animation: none;
 }
 .nav-ai-icon {
   position: relative;
@@ -1579,46 +1555,16 @@ textarea {
   top: -4px;
   right: -5px;
 }
-.nav-ai-badge {
-  margin-left: auto;
-  border-radius: 999px;
-  background: var(--ai-solid);
-  color: var(--ai-solid-foreground);
-  padding: 1px 7px;
-  font-size: 11px;
-  font-weight: 700;
-  line-height: 16px;
-  letter-spacing: 0.3px;
-}
-.nav-item.nav-ai.active .nav-ai-badge {
-  background: var(--ai-solid-foreground);
-  color: var(--ai-solid);
-}
 .nav-divider {
   height: 1px;
   margin: 10px 8px;
   background: var(--border);
 }
-@media (prefers-reduced-motion: reduce) {
-  .nav-item.nav-ai::after {
-    animation: none;
-  }
-}
 @media (max-width: 760px) {
   .nav-divider {
     display: none;
   }
-  /* bottom bar: keep the AI highlight; the badge becomes a small pill on the icon */
   .nav-item.nav-ai {
     padding: 5px 4px;
-  }
-  .nav-ai-badge {
-    position: absolute;
-    top: 3px;
-    right: 6px;
-    margin: 0;
-    padding: 0 4px;
-    font-size: 8px;
-    line-height: 12px;
   }
 }
